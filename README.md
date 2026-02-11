@@ -15,14 +15,16 @@ A real-time credit scoring and underwriting protocol for stablecoin lending on E
 Oracle-first design with EIP-712 signed risk payloads. Loans not yet implemented.
 
 ```bash
-# WSL2 (recommended on Windows)
-wsl
+# Clone (includes forge-std submodule)
+git clone --recurse-submodules https://github.com/KeldrickD/onchain-credit-engine.git
+cd onchain-credit-engine/contracts
+
+# Install Foundry (WSL2 recommended on Windows)
 curl -L https://foundry.paradigm.xyz | bash
 source ~/.bashrc && foundryup
-cd /mnt/c/path/to/ocx/contracts
-forge test -vvv
 
-# Or use scripts/install-foundry-wsl.sh
+# Test
+forge test -vvv
 ```
 
 ### Implemented
