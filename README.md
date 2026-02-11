@@ -31,16 +31,19 @@ forge test -vvv
 
 - `RiskOracle.sol` — Semi-trusted EIP-712 oracle; `verifyRiskPayload` (consumes nonce), `verifyRiskPayloadView`, `getPayloadDigest`
 - `CreditRegistry.sol` — Stores CreditProfile; updates gated by oracle
-- `TreasuryVault.sol` — USDC custody + accounting; deposit/withdraw; LoanEngine permission boundary (`transferToBorrower`, `pullFromBorrower`)
+- `TreasuryVault.sol` — USDC custody + accounting; deposit/withdraw; LoanEngine permission boundary
+- `LoanEngine.sol` — End-to-end borrow: RiskOracle → CreditRegistry → openLoan → TreasuryVault; repay via `vault.pullFromBorrower`
 - `MockUSDC.sol` — 6 decimals, mintable (tests + Base Sepolia)
 - `SignatureVerifier.sol` — EIP-712 domain separator, struct hashing, signature recovery
-- Interfaces: `IRiskOracle`, `ICreditRegistry`, `ITreasuryVault`
+- `MockCollateral.sol` — 18 decimals, mintable (WETH-like)
+- Interfaces: `IRiskOracle`, `ICreditRegistry`, `ITreasuryVault`, `ILoanEngine`
 
-### Tests (40 total)
+### Tests (57 total)
 
 **RiskOracle:** valid signature, invalid signer, expired timestamp, replay attack  
 **CreditRegistry:** successful update, score/tier bounds, replay, different users  
-**TreasuryVault:** deposit/withdraw, zero amount, approval required, LoanEngine permissions, `transferToBorrower`/`pullFromBorrower`
+**TreasuryVault:** deposit/withdraw, zero amount, LoanEngine permissions  
+**LoanEngine:** deposit/withdraw collateral, openLoan (terms, LTV, replay), repay, withdrawCollateral (LTV guard)
 
 ### Chain
 
