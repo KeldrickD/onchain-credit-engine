@@ -14,6 +14,10 @@ node_modules/
 backend/risk-sim/reports/*.json
 backend/risk-sim/reports/*.md
 
+# Monitor outputs
+monitor_snapshots/
+incident_exports/
+
 # IDE
 .idea/
 .vscode/

@@ -1,0 +1,13 @@
+{
+  "baseSepolia": {
+    "chainId": 84532,
+    "network": "base-sepolia",
+    "contracts": {
+      "loanEngine": "",
+      "vault": "",
+      "priceOracle": "",
+      "registry": "",
+      "liqManager": ""
+    }
+  }
+}

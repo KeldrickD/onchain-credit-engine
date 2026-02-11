@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "risk:sim": "pnpm --filter risk-sim run sim"
+    "risk:sim": "pnpm --filter risk-sim run sim",
+    "monitor": "pnpm --filter monitor run monitor"
   },
   "packageManager": "pnpm@9.0.0"
 }
