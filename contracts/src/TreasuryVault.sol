@@ -19,8 +19,11 @@ contract TreasuryVault is ITreasuryVault, ReentrancyGuard, Ownable {
 
     IERC20 public immutable usdc;
 
-    /// @notice LoanEngine address; only it can call transferToBorrower / pullFromBorrower
+    /// @notice LoanEngine address; only it can call transferToBorrower
     address public loanEngine;
+
+    /// @notice LiquidationManager address; can call pullFromBorrower for liquidations
+    address public liquidationManager;
 
     mapping(address => uint256) private balances;
 
@@ -49,6 +52,11 @@ contract TreasuryVault is ITreasuryVault, ReentrancyGuard, Ownable {
 
     modifier onlyLoanEngine() {
         if (msg.sender != loanEngine) revert TreasuryVault_Unauthorized();
+        _;
+    }
+
+    modifier onlyAuthorizedPuller() {
+        if (msg.sender != loanEngine && msg.sender != liquidationManager) revert TreasuryVault_Unauthorized();
         _;
     }
 
@@ -101,6 +109,11 @@ contract TreasuryVault is ITreasuryVault, ReentrancyGuard, Ownable {
     }
 
     /// @inheritdoc ITreasuryVault
+    function setLiquidationManager(address _liquidationManager) external override onlyOwner {
+        liquidationManager = _liquidationManager;
+    }
+
+    /// @inheritdoc ITreasuryVault
     function transferToBorrower(address borrower, uint256 amount) external override onlyLoanEngine {
         if (amount == 0) revert TreasuryVault_ZeroAmount();
         if (borrower == address(0)) revert TreasuryVault_InvalidAddress();
@@ -110,7 +123,7 @@ contract TreasuryVault is ITreasuryVault, ReentrancyGuard, Ownable {
     }
 
     /// @inheritdoc ITreasuryVault
-    function pullFromBorrower(address borrower, uint256 amount) external override onlyLoanEngine {
+    function pullFromBorrower(address borrower, uint256 amount) external override onlyAuthorizedPuller {
         if (amount == 0) revert TreasuryVault_ZeroAmount();
         if (borrower == address(0)) revert TreasuryVault_InvalidAddress();
 

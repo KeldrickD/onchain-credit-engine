@@ -30,4 +30,7 @@ interface ILoanEngine {
 
     function getTerms(address user) external view returns (LoanTerms memory);
     function getPosition(address user) external view returns (LoanPosition memory);
+    function getCollateralBalance(address user) external view returns (uint256);
+    function liquidationRepay(address borrower, uint256 amount) external;
+    function seizeCollateral(address borrower, address to, uint256 amount) external;
 }

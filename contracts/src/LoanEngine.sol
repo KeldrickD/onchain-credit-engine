@@ -8,11 +8,12 @@ import {IRiskOracle} from "./interfaces/IRiskOracle.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title LoanEngine
 /// @notice MVP borrow flow: RiskOracle → CreditRegistry → LoanEngine → TreasuryVault → USDC
 /// @dev Single loan per borrower. Collateral held in LoanEngine. Repay via vault.pullFromBorrower.
-contract LoanEngine is ILoanEngine, ReentrancyGuard {
+contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     // -------------------------------------------------------------------------
@@ -65,17 +66,20 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard {
     error LoanEngine_InsufficientVaultLiquidity();
     error LoanEngine_RepayExceedsPrincipal();
     error LoanEngine_WithdrawWouldViolateLTV();
+    error LoanEngine_OnlyLiquidationManager();
 
-    // -------------------------------------------------------------------------
-    // Constructor
-    // -------------------------------------------------------------------------
+    event LiquidationManagerSet(address indexed oldManager, address indexed newManager);
+    event LiquidationRepay(address indexed borrower, uint256 amount, uint256 remainingPrincipal);
+    event CollateralSeized(address indexed borrower, address indexed to, uint256 amount);
+
+    address public liquidationManager;
 
     constructor(
         address _creditRegistry,
         address _treasuryVault,
         address _usdc,
         address _collateral
-    ) {
+    ) Ownable(msg.sender) {
         creditRegistry = ICreditRegistry(_creditRegistry);
         treasuryVault = ITreasuryVault(_treasuryVault);
         usdc = IERC20(_usdc);
@@ -180,6 +184,48 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard {
 
     function getCollateralBalance(address user) external view returns (uint256) {
         return collateralBalances[user];
+    }
+
+    function setLiquidationManager(address _liquidationManager) external onlyOwner {
+        address old = liquidationManager;
+        liquidationManager = _liquidationManager;
+        emit LiquidationManagerSet(old, _liquidationManager);
+    }
+
+    modifier onlyLiquidationManager() {
+        if (msg.sender != liquidationManager) revert LoanEngine_OnlyLiquidationManager();
+        _;
+    }
+
+    function liquidationRepay(address borrower, uint256 amount)
+        external
+        override
+        onlyLiquidationManager
+        nonReentrant
+    {
+        if (amount == 0) revert LoanEngine_ZeroAmount();
+
+        LoanPosition storage pos = positions[borrower];
+        if (amount > pos.principalAmount) revert LoanEngine_RepayExceedsPrincipal();
+
+        pos.principalAmount -= amount;
+
+        emit LiquidationRepay(borrower, amount, pos.principalAmount);
+    }
+
+    function seizeCollateral(address borrower, address to, uint256 amount)
+        external
+        override
+        onlyLiquidationManager
+        nonReentrant
+    {
+        if (amount == 0) revert LoanEngine_ZeroAmount();
+        if (collateralBalances[borrower] < amount) revert LoanEngine_InsufficientCollateral();
+
+        collateralBalances[borrower] -= amount;
+        collateral.safeTransfer(to, amount);
+
+        emit CollateralSeized(borrower, to, amount);
     }
 
     // -------------------------------------------------------------------------

@@ -18,6 +18,10 @@ interface ITreasuryVault {
     /// @param loanEngine Address of the LoanEngine contract
     function setLoanEngine(address loanEngine) external;
 
+    /// @notice Set the LiquidationManager (owner-only). Can pullFromBorrower for liquidations.
+    /// @param liquidationManager Address of the LiquidationManager contract
+    function setLiquidationManager(address liquidationManager) external;
+
     /// @notice Transfer vault USDC to a borrower (onlyLoanEngine). Protocol-controlled distribution.
     /// @dev Does not affect internal balances; moves from aggregate vault liquidity.
     /// @param borrower Recipient address
