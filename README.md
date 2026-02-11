@@ -30,14 +30,17 @@ forge test -vvv
 ### Implemented
 
 - `RiskOracle.sol` — Semi-trusted EIP-712 oracle; `verifyRiskPayload` (consumes nonce), `verifyRiskPayloadView`, `getPayloadDigest`
-- `CreditRegistry.sol` — Stores CreditProfile; updates gated by oracle. Calls `verifyRiskPayload` for atomic verify+store.
+- `CreditRegistry.sol` — Stores CreditProfile; updates gated by oracle
+- `TreasuryVault.sol` — USDC custody + accounting; deposit/withdraw; LoanEngine permission boundary (`transferToBorrower`, `pullFromBorrower`)
+- `MockUSDC.sol` — 6 decimals, mintable (tests + Base Sepolia)
 - `SignatureVerifier.sol` — EIP-712 domain separator, struct hashing, signature recovery
-- Interfaces: `IRiskOracle`, `ICreditRegistry`
+- Interfaces: `IRiskOracle`, `ICreditRegistry`, `ITreasuryVault`
 
-### Tests (23 total)
+### Tests (40 total)
 
-**RiskOracle:** valid signature, invalid signer, expired timestamp, replay attack, boundary conditions  
-**CreditRegistry:** successful update, score/tier bounds, replay at registry level, different users independent, `lastUpdated` = `block.timestamp`
+**RiskOracle:** valid signature, invalid signer, expired timestamp, replay attack  
+**CreditRegistry:** successful update, score/tier bounds, replay, different users  
+**TreasuryVault:** deposit/withdraw, zero amount, approval required, LoanEngine permissions, `transferToBorrower`/`pullFromBorrower`
 
 ### Chain
 
