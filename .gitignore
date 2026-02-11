@@ -1,0 +1,17 @@
+# Foundry
+contracts/out/
+contracts/cache/
+broadcast/
+
+# Env
+.env
+.env.*
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
