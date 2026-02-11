@@ -1,66 +1,79 @@
 # OCX — Onchain Credit Engine
 
-A real-time credit scoring and underwriting protocol for stablecoin lending on EVM chains.
+Programmable underwriting, liquidation, and operator tooling for stablecoin lending.
+
+## Overview
+
+OCX is an infrastructure layer for EVM-based stablecoin lending: smart contracts hold custody and enforce loan terms; offchain oracles supply signed risk and price payloads; a loan engine gates origination by score bands; a liquidation manager keeps positions solvent; and operator tooling (monitoring, stress testing) surfaces anomalies and parameter recommendations. No governance, no tokens—just the plumbing.
 
 ## Architecture
 
-- **Smart contracts** — Credit registry, loan engine, risk oracle, liquidation, treasury
-- **Backend** — Risk engine, oracle signer, event indexer
-- **Frontend** — Borrower dashboard, risk transparency, admin console
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Contracts  │────▶│   Oracles   │────▶│   Engine    │
+│ RiskOracle  │     │ EIP-712     │     │ LoanEngine  │
+│ PriceOracle │     │ Risk+Price  │     │ Liquidation │
+│ CreditReg   │     └─────────────┘     │ Manager     │
+└─────────────┘                         └──────┬──────┘
+                                                │
+       ┌───────────────────────────────────────┼───────────────────────────────────────┐
+       │                                       ▼                                       │
+       │                              ┌─────────────┐                                   │
+       │                              │    Vault    │                                   │
+       │                              │ TreasuryVault│                                  │
+       │                              └─────────────┘                                   │
+       │                                                                                │
+       │  ┌─────────────┐                                      ┌─────────────┐         │
+       └─▶│   Monitor   │◀─── log scan, anomaly rules ────────▶│  RiskSim    │         │
+          │ incident export                                     │ Monte Carlo │         │
+          └─────────────┘                                       │ recommend   │         │
+                                                                └─────────────┘         │
+```
 
-## Phase 1: System foundation
+## Core Capabilities
 
-### Contracts (Foundry)
+- **EIP-712 signed risk + price oracles** — Offchain signing; nonce + timestamp replay protection
+- **Score-driven loan origination** — Credit bands map to LTV and interest rate; single loan per borrower
+- **Liquidation engine with close factor + bonus** — Health-factor gated; keeper-style liquidations
+- **Monte Carlo stress testing + parameter recommendations** — Simulates market shocks; recommends threshold/close factor/bonus tweaks
+- **Monitoring + incident export tooling** — Scans logs, detects anomalies (bursts, staleness, surges), exports runbooks
 
-Oracle-first design with EIP-712 signed risk payloads. Loans not yet implemented.
+## How to Run Locally
 
 ```bash
 # Clone (includes forge-std submodule)
 git clone --recurse-submodules https://github.com/KeldrickD/onchain-credit-engine.git
-cd onchain-credit-engine/contracts
+cd onchain-credit-engine
 
 # Install Foundry (WSL2 recommended on Windows)
 curl -L https://foundry.paradigm.xyz | bash
 source ~/.bashrc && foundryup
 
-# Test
-forge test -vvv
+# Run contracts tests
+cd contracts && forge test
+
+# Run risk simulation (Monte Carlo stress)
+pnpm risk:sim
+
+# Run monitor (requires RPC; set addresses in backend/monitor/config.json after deploy)
+pnpm monitor -- --rpc $BASE_SEPOLIA_RPC_URL --lookback 5000 --step 1000
 ```
 
-### Implemented
+## Threat Model
 
-- `RiskOracle.sol` — Semi-trusted EIP-712 oracle; `verifyRiskPayload` (consumes nonce), `verifyRiskPayloadView`, `getPayloadDigest`
-- `SignedPriceOracle.sol` — EIP-712 price feed; collateral price in USDC terms (6 decimals); per-asset nonce, 5-min validity
-- `CreditRegistry.sol` — Stores CreditProfile; updates gated by oracle
-- `TreasuryVault.sol` — USDC custody + accounting; deposit/withdraw; LoanEngine + LiquidationManager permission boundary
-- `LoanEngine.sol` — End-to-end borrow: RiskOracle → CreditRegistry → openLoan → TreasuryVault; repay via `vault.pullFromBorrower`; liquidation hooks (`liquidationRepay`, `seizeCollateral`)
-- `LiquidationManager.sol` — Keeper-style liquidation; health factor, close factor (50%), bonus (8%); ReentrancyGuard
-- `MockUSDC.sol` — 6 decimals, mintable (tests + Base Sepolia)
-- `SignatureVerifier.sol` — EIP-712 domain separator, struct hashing, signature recovery
-- `MockCollateral.sol` — 18 decimals, mintable (WETH-like)
-- Interfaces: `IRiskOracle`, `ICreditRegistry`, `ITreasuryVault`, `ILoanEngine`
+See [docs/threat-model.md](docs/threat-model.md) for:
 
-### Tests (66 total)
+- **Oracle trust boundary** — Semi-trusted signers; compromise impacts scoring and liquidations
+- **Replay protection** — Per-user (risk) and per-asset (price) nonces; timestamp validity windows
+- **Reentrancy tests** — ReentrancyGuard on LiquidatationManager, LoanEngine, TreasuryVault; malicious-collateral tests
+- **Known limitations** — Centralized price source in MVP; governance/MEV out of scope
 
-**RiskOracle:** valid signature, invalid signer, expired timestamp, replay attack  
-**CreditRegistry:** successful update, score/tier bounds, replay, different users  
-**TreasuryVault:** deposit/withdraw, zero amount, LoanEngine + LiquidationManager permissions  
-**LoanEngine:** deposit/withdraw collateral, openLoan (terms, LTV, replay), repay, withdrawCollateral (LTV guard)  
-**LiquidationManager:** healthy position blocked, price-drop liquidation, close factor, bonus, replay, vault approval, permissions, health factor, reentrancy via malicious collateral
+## What’s Intentionally Not Built
 
-### Chain
-
-Base Sepolia for iteration and demos. zkSync planned post-MVP.
-
-## Repo structure
-
-```
-ocx/
-├── contracts/       # Solidity (Foundry)
-├── backend/         # Risk engine, oracle-signer, indexer
-├── frontend/        # Borrower dashboard, admin
-└── docs/            # Architecture, threat model, oracle design
-```
+- **No governance** — Parameters set by owner; no DAO or voting
+- **No yield farming** — No LP incentives or reward tokens
+- **No token incentives** — No protocol token or staking
+- **No decentralization theater** — Oracles are explicitly semi-trusted; documented and testable
 
 ## License
 
