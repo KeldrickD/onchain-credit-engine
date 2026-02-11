@@ -1,0 +1,9 @@
+{
+  "name": "ocx",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "risk:sim": "pnpm --filter risk-sim run sim"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

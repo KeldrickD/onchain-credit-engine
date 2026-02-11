@@ -10,6 +10,10 @@ broadcast/
 # Node
 node_modules/
 
+# Generated reports
+backend/risk-sim/reports/*.json
+backend/risk-sim/reports/*.md
+
 # IDE
 .idea/
 .vscode/
