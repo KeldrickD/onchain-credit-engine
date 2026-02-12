@@ -3,60 +3,63 @@ pragma solidity ^0.8.24;
 
 import {ILoanEngine} from "./interfaces/ILoanEngine.sol";
 import {ICreditRegistry} from "./interfaces/ICreditRegistry.sol";
+import {ICollateralManager} from "./interfaces/ICollateralManager.sol";
+import {IPriceRouter} from "./interfaces/IPriceRouter.sol";
 import {ITreasuryVault} from "./interfaces/ITreasuryVault.sol";
 import {IRiskOracle} from "./interfaces/IRiskOracle.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {InterestRateModel} from "./InterestRateModel.sol";
 
 /// @title LoanEngine
-/// @notice MVP borrow flow: RiskOracle → CreditRegistry → LoanEngine → TreasuryVault → USDC
-/// @dev Single loan per borrower. Collateral held in LoanEngine. Repay via vault.pullFromBorrower.
+/// @notice Multi-collateral borrow flow: PriceRouter + CollateralManager + CreditRegistry → LoanEngine.
+/// @dev Index-based debt accrual. One position per borrower, single collateral asset per position.
 contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
-    // -------------------------------------------------------------------------
-    // Constants — Score → Terms (v0 hard-coded curve)
-    // -------------------------------------------------------------------------
-    // 0–399:   LTV 50%,  rate 1500 bps
-    // 400–699: LTV 65%,  rate 1000 bps
-    // 700–850: LTV 75%,  rate 700 bps
-    // 851–1000: LTV 85%, rate 500 bps
-
     uint256 private constant BPS = 10_000;
-    uint256 private constant COLLATERAL_TO_USDC = 1e12; // 18 - 6 decimals
+    uint256 private constant RAY = 1e27;
+    uint256 private constant SECONDS_PER_YEAR = 365.25 days;
+    uint256 private constant USD8_TO_USDC6 = 100;
 
-    // -------------------------------------------------------------------------
-    // State
-    // -------------------------------------------------------------------------
+    uint256 private constant NUM_TIERS = 4;
 
     ICreditRegistry public immutable creditRegistry;
     ITreasuryVault public immutable treasuryVault;
+    IPriceRouter public immutable priceRouter;
+    ICollateralManager public immutable collateralManager;
     IERC20 public immutable usdc;
-    IERC20 public immutable collateral;
 
-    mapping(address => uint256) private collateralBalances;
-    mapping(address => LoanPosition) private positions;
+    mapping(address => mapping(address => uint256)) private collateralBalances;
+    mapping(address => address) private positionCollateralAsset;
+    mapping(address => uint256) private positionCollateralAmount;
 
-    // -------------------------------------------------------------------------
-    // Events
-    // -------------------------------------------------------------------------
+    struct PositionStorage {
+        uint256 openedAt;
+        uint256 ltvBps;
+        uint256 interestRateBps;
+        uint256 scaledDebtRay;
+        uint256 userTier;
+    }
+    mapping(address => PositionStorage) private positions;
 
-    event CollateralDeposited(address indexed user, uint256 amount);
-    event CollateralWithdrawn(address indexed user, uint256 amount);
+    mapping(uint256 => uint256) private borrowIndexRay;
+    mapping(uint256 => uint256) private lastAccrualTimestamp;
+
+    event CollateralDeposited(address indexed user, address indexed asset, uint256 amount);
+    event CollateralWithdrawn(address indexed user, address indexed asset, uint256 amount);
     event LoanOpened(
         address indexed borrower,
+        address indexed asset,
         uint256 collateralAmount,
         uint256 principalAmount,
         uint256 ltvBps,
         uint256 interestRateBps
     );
     event LoanRepaid(address indexed borrower, uint256 amount, uint256 remainingPrincipal);
-
-    // -------------------------------------------------------------------------
-    // Errors
-    // -------------------------------------------------------------------------
 
     error LoanEngine_ZeroAmount();
     error LoanEngine_InsufficientCollateral();
@@ -66,7 +69,10 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
     error LoanEngine_InsufficientVaultLiquidity();
     error LoanEngine_RepayExceedsPrincipal();
     error LoanEngine_WithdrawWouldViolateLTV();
+    error LoanEngine_WithdrawWouldViolateLiquidationThreshold();
     error LoanEngine_OnlyLiquidationManager();
+    error LoanEngine_AssetNotEnabled();
+    error LoanEngine_PriceStale();
 
     event LiquidationManagerSet(address indexed oldManager, address indexed newManager);
     event LiquidationRepay(address indexed borrower, uint256 amount, uint256 remainingPrincipal);
@@ -78,112 +84,158 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
         address _creditRegistry,
         address _treasuryVault,
         address _usdc,
-        address _collateral
+        address _priceRouter,
+        address _collateralManager
     ) Ownable(msg.sender) {
         creditRegistry = ICreditRegistry(_creditRegistry);
         treasuryVault = ITreasuryVault(_treasuryVault);
         usdc = IERC20(_usdc);
-        collateral = IERC20(_collateral);
+        priceRouter = IPriceRouter(_priceRouter);
+        collateralManager = ICollateralManager(_collateralManager);
+        for (uint256 i = 0; i < NUM_TIERS; i++) {
+            borrowIndexRay[i] = RAY;
+            lastAccrualTimestamp[i] = block.timestamp;
+        }
     }
 
-    // -------------------------------------------------------------------------
-    // External
-    // -------------------------------------------------------------------------
-
-    /// @inheritdoc ILoanEngine
-    function depositCollateral(uint256 amount) external override nonReentrant {
+    function depositCollateral(address asset, uint256 amount) external override nonReentrant {
         if (amount == 0) revert LoanEngine_ZeroAmount();
-
-        collateral.safeTransferFrom(msg.sender, address(this), amount);
-        collateralBalances[msg.sender] += amount;
-
-        emit CollateralDeposited(msg.sender, amount);
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        collateralBalances[msg.sender][asset] += amount;
+        emit CollateralDeposited(msg.sender, asset, amount);
     }
 
-    /// @inheritdoc ILoanEngine
-    function withdrawCollateral(uint256 amount) external override nonReentrant {
+    function withdrawCollateral(address asset, uint256 amount) external override nonReentrant {
         if (amount == 0) revert LoanEngine_ZeroAmount();
-        if (collateralBalances[msg.sender] < amount) revert LoanEngine_InsufficientCollateral();
+        if (collateralBalances[msg.sender][asset] < amount) revert LoanEngine_InsufficientCollateral();
 
-        LoanPosition memory pos = positions[msg.sender];
-
-        if (pos.principalAmount > 0) {
-            uint256 remaining = collateralBalances[msg.sender] - amount;
-            uint256 maxDebtUsdc = (remaining * pos.ltvBps) / BPS / COLLATERAL_TO_USDC;
-            if (pos.principalAmount > maxDebtUsdc) revert LoanEngine_WithdrawWouldViolateLTV();
+        PositionStorage storage pos = positions[msg.sender];
+        if (pos.scaledDebtRay > 0) {
+            address posAsset = positionCollateralAsset[msg.sender];
+            if (posAsset == asset) {
+                _accrueTier(pos.userTier);
+                uint256 currentDebt = (pos.scaledDebtRay * borrowIndexRay[pos.userTier]) / RAY;
+                uint256 remaining = collateralBalances[msg.sender][asset] - amount;
+                uint256 maxDebtLTV = _getMaxBorrowUSDC6(msg.sender, asset, remaining);
+                if (currentDebt > maxDebtLTV) revert LoanEngine_WithdrawWouldViolateLTV();
+                uint256 maxDebtLiq = _getMaxDebtForLiquidationSafety(asset, remaining);
+                if (currentDebt > maxDebtLiq) revert LoanEngine_WithdrawWouldViolateLiquidationThreshold();
+            }
         }
 
-        collateralBalances[msg.sender] -= amount;
-        collateral.safeTransfer(msg.sender, amount);
-
-        emit CollateralWithdrawn(msg.sender, amount);
+        collateralBalances[msg.sender][asset] -= amount;
+        if (positionCollateralAsset[msg.sender] == asset) {
+            positionCollateralAmount[msg.sender] -= amount;
+        }
+        IERC20(asset).safeTransfer(msg.sender, amount);
+        emit CollateralWithdrawn(msg.sender, asset, amount);
     }
 
-    /// @inheritdoc ILoanEngine
     function openLoan(
-        uint256 borrowAmount,
+        address asset,
+        uint256 borrowAmountUSDC6,
         IRiskOracle.RiskPayload calldata payload,
         bytes calldata signature
     ) external override nonReentrant {
-        if (borrowAmount == 0) revert LoanEngine_ZeroAmount();
+        if (borrowAmountUSDC6 == 0) revert LoanEngine_ZeroAmount();
         if (payload.user != msg.sender) revert LoanEngine_InvalidPayloadUser();
 
-        LoanPosition storage pos = positions[msg.sender];
-        if (pos.principalAmount > 0) revert LoanEngine_ActiveLoanExists();
+        PositionStorage storage pos = positions[msg.sender];
+        if (pos.scaledDebtRay > 0) revert LoanEngine_ActiveLoanExists();
+
+        ICollateralManager.CollateralConfig memory cfg = collateralManager.getConfig(asset);
+        if (!cfg.enabled) revert LoanEngine_AssetNotEnabled();
+
+        (uint256 priceUSD8,, bool isStale) = priceRouter.getPriceUSD8(asset);
+        if (isStale || priceUSD8 == 0) revert LoanEngine_PriceStale();
 
         creditRegistry.updateCreditProfile(payload, signature);
 
         ICreditRegistry.CreditProfile memory profile = creditRegistry.getCreditProfile(msg.sender);
-        (uint256 ltvBps, uint256 rateBps) = _getTermsFromScore(profile.score);
+        (uint256 scoreLtvBps, uint256 rateBps) = _getTermsFromScore(profile.score);
+        uint256 tier = InterestRateModel.getTierFromScore(profile.score);
 
-        uint256 coll = collateralBalances[msg.sender];
-        uint256 maxBorrow = (coll * ltvBps) / BPS / COLLATERAL_TO_USDC;
-        if (borrowAmount > maxBorrow) revert LoanEngine_BorrowExceedsMax();
+        _accrueTier(tier);
+
+        uint256 coll = collateralBalances[msg.sender][asset];
+        uint256 maxBorrow = getMaxBorrow(msg.sender, asset);
+        if (borrowAmountUSDC6 > maxBorrow) revert LoanEngine_BorrowExceedsMax();
 
         uint256 vaultBalance = usdc.balanceOf(address(treasuryVault));
-        if (borrowAmount > vaultBalance) revert LoanEngine_InsufficientVaultLiquidity();
+        if (borrowAmountUSDC6 > vaultBalance) revert LoanEngine_InsufficientVaultLiquidity();
 
-        positions[msg.sender] = LoanPosition({
-            collateralAmount: coll,
-            principalAmount: borrowAmount,
+        collateralManager.increaseDebt(asset, uint128(borrowAmountUSDC6));
+
+        uint256 effectiveLtv = _effectiveLtvBps(scoreLtvBps, cfg.ltvBpsCap);
+        uint256 idx = borrowIndexRay[tier];
+        uint256 scaledDebt = (borrowAmountUSDC6 * RAY) / idx;
+
+        positions[msg.sender] = PositionStorage({
             openedAt: block.timestamp,
-            ltvBps: ltvBps,
-            interestRateBps: rateBps
+            ltvBps: effectiveLtv,
+            interestRateBps: rateBps,
+            scaledDebtRay: scaledDebt,
+            userTier: tier
         });
+        positionCollateralAsset[msg.sender] = asset;
+        positionCollateralAmount[msg.sender] = coll;
 
-        treasuryVault.transferToBorrower(msg.sender, borrowAmount);
-
-        emit LoanOpened(msg.sender, coll, borrowAmount, ltvBps, rateBps);
+        treasuryVault.transferToBorrower(msg.sender, borrowAmountUSDC6);
+        emit LoanOpened(msg.sender, asset, coll, borrowAmountUSDC6, effectiveLtv, rateBps);
     }
 
-    /// @inheritdoc ILoanEngine
     function repay(uint256 amount) external override nonReentrant {
         if (amount == 0) revert LoanEngine_ZeroAmount();
 
-        LoanPosition storage pos = positions[msg.sender];
-        if (amount > pos.principalAmount) revert LoanEngine_RepayExceedsPrincipal();
+        PositionStorage storage pos = positions[msg.sender];
+        address asset = positionCollateralAsset[msg.sender];
+        _accrueTier(pos.userTier);
 
-        treasuryVault.pullFromBorrower(msg.sender, amount);
+        uint256 idx = borrowIndexRay[pos.userTier];
+        uint256 currentDebt = (pos.scaledDebtRay * idx) / RAY;
+        uint256 repayAmount = amount > currentDebt ? currentDebt : amount;
 
-        pos.principalAmount -= amount;
+        treasuryVault.pullFromBorrower(msg.sender, repayAmount);
 
-        emit LoanRepaid(msg.sender, amount, pos.principalAmount);
+        collateralManager.decreaseDebt(asset, uint128(repayAmount));
+        pos.scaledDebtRay -= (repayAmount * RAY) / idx;
+        uint256 remaining = (pos.scaledDebtRay * idx) / RAY;
+        emit LoanRepaid(msg.sender, repayAmount, remaining);
     }
 
-    /// @inheritdoc ILoanEngine
     function getTerms(address user) external view override returns (LoanTerms memory) {
         ICreditRegistry.CreditProfile memory profile = creditRegistry.getCreditProfile(user);
         (uint256 ltvBps, uint256 rateBps) = _getTermsFromScore(profile.score);
         return LoanTerms({ltvBps: ltvBps, interestRateBps: rateBps});
     }
 
-    /// @inheritdoc ILoanEngine
     function getPosition(address user) external view override returns (LoanPosition memory) {
-        return positions[user];
+        PositionStorage storage pos = positions[user];
+        uint256 principalAmount = 0;
+        if (pos.scaledDebtRay > 0) {
+            uint256 idx = _getBorrowIndexRayView(pos.userTier);
+            principalAmount = (pos.scaledDebtRay * idx) / RAY;
+        }
+        return LoanPosition({
+            collateralAsset: positionCollateralAsset[user],
+            collateralAmount: positionCollateralAmount[user],
+            principalAmount: principalAmount,
+            openedAt: pos.openedAt,
+            ltvBps: pos.ltvBps,
+            interestRateBps: pos.interestRateBps
+        });
     }
 
-    function getCollateralBalance(address user) external view returns (uint256) {
-        return collateralBalances[user];
+    function getCollateralBalance(address user, address asset) external view override returns (uint256) {
+        return collateralBalances[user][asset];
+    }
+
+    function getPositionCollateralAsset(address user) external view override returns (address) {
+        return positionCollateralAsset[user];
+    }
+
+    function getMaxBorrow(address user, address asset) public view override returns (uint256) {
+        return _getMaxBorrowUSDC6(user, asset, collateralBalances[user][asset]);
     }
 
     function setLiquidationManager(address _liquidationManager) external onlyOwner {
@@ -205,12 +257,18 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
     {
         if (amount == 0) revert LoanEngine_ZeroAmount();
 
-        LoanPosition storage pos = positions[borrower];
-        if (amount > pos.principalAmount) revert LoanEngine_RepayExceedsPrincipal();
+        PositionStorage storage pos = positions[borrower];
+        address asset = positionCollateralAsset[borrower];
+        _accrueTier(pos.userTier);
 
-        pos.principalAmount -= amount;
+        uint256 idx = borrowIndexRay[pos.userTier];
+        uint256 currentDebt = (pos.scaledDebtRay * idx) / RAY;
+        uint256 repayAmount = amount > currentDebt ? currentDebt : amount;
 
-        emit LiquidationRepay(borrower, amount, pos.principalAmount);
+        pos.scaledDebtRay -= (repayAmount * RAY) / idx;
+        collateralManager.decreaseDebt(asset, uint128(repayAmount));
+        uint256 remaining = (pos.scaledDebtRay * idx) / RAY;
+        emit LiquidationRepay(borrower, repayAmount, remaining);
     }
 
     function seizeCollateral(address borrower, address to, uint256 amount)
@@ -220,26 +278,111 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
         nonReentrant
     {
         if (amount == 0) revert LoanEngine_ZeroAmount();
-        if (collateralBalances[borrower] < amount) revert LoanEngine_InsufficientCollateral();
+        address asset = positionCollateralAsset[borrower];
+        if (collateralBalances[borrower][asset] < amount) revert LoanEngine_InsufficientCollateral();
 
-        collateralBalances[borrower] -= amount;
-        collateral.safeTransfer(to, amount);
+        collateralBalances[borrower][asset] -= amount;
+        positionCollateralAmount[borrower] -= amount;
+        IERC20(asset).safeTransfer(to, amount);
 
         emit CollateralSeized(borrower, to, amount);
     }
 
     // -------------------------------------------------------------------------
-    // Internal
+    // Valuation helpers
     // -------------------------------------------------------------------------
+
+    function _getValueUSDC6(address asset, uint256 amount) internal view returns (uint256) {
+        if (amount == 0) return 0;
+        (uint256 priceUSD8,,) = priceRouter.getPriceUSD8(asset);
+        if (priceUSD8 == 0) return 0;
+        uint8 dec = IERC20Metadata(asset).decimals();
+        uint256 valueUSD8 = (amount * priceUSD8) / (10 ** dec);
+        return valueUSD8 / USD8_TO_USDC6;
+    }
+
+    function _getMaxBorrowUSDC6(address user, address asset, uint256 collateralAmount)
+        internal
+        view
+        returns (uint256)
+    {
+        if (collateralAmount == 0) return 0;
+
+        ICollateralManager.CollateralConfig memory cfg = collateralManager.getConfig(asset);
+        if (!cfg.enabled) return 0;
+
+        (uint256 priceUSD8,, bool isStale) = priceRouter.getPriceUSD8(asset);
+        if (isStale || priceUSD8 == 0) return 0;
+
+        uint256 valueUSDC6 = _getValueUSDC6(asset, collateralAmount);
+        uint256 valueAfterHaircut = (valueUSDC6 * cfg.haircutBps) / BPS;
+
+        ICreditRegistry.CreditProfile memory profile = creditRegistry.getCreditProfile(user);
+        (uint256 scoreLtvBps,) = _getTermsFromScore(profile.score);
+        uint256 ltvBps = _effectiveLtvBps(scoreLtvBps, cfg.ltvBpsCap);
+
+        return (valueAfterHaircut * ltvBps) / BPS;
+    }
+
+    function _effectiveLtvBps(uint256 scoreLtvBps, uint16 capBps) internal pure returns (uint256) {
+        if (capBps == 0) return scoreLtvBps;
+        return scoreLtvBps < capBps ? scoreLtvBps : capBps;
+    }
+
+    /// @dev Max debt that keeps position above liquidation threshold (for withdrawal safety)
+    function _getMaxDebtForLiquidationSafety(address asset, uint256 collateralAmount)
+        internal
+        view
+        returns (uint256)
+    {
+        if (collateralAmount == 0) return 0;
+        ICollateralManager.CollateralConfig memory cfg = collateralManager.getConfig(asset);
+        if (!cfg.enabled) return 0;
+        (uint256 priceUSD8,, bool isStale) = priceRouter.getPriceUSD8(asset);
+        if (isStale || priceUSD8 == 0) return 0;
+
+        uint256 valueUSDC6 = _getValueUSDC6(asset, collateralAmount);
+        uint256 valueAfterHaircut = (valueUSDC6 * cfg.haircutBps) / BPS;
+
+        uint256 liqThresholdBps = cfg.liquidationThresholdBpsCap;
+        if (liqThresholdBps == 0) liqThresholdBps = 8800;
+        return (valueAfterHaircut * liqThresholdBps) / BPS;
+    }
+
+    // -------------------------------------------------------------------------
+    // Accrual
+    // -------------------------------------------------------------------------
+
+    function _accrueTier(uint256 tier) internal {
+        uint256 last = lastAccrualTimestamp[tier];
+        if (block.timestamp <= last) return;
+
+        uint256 elapsed = block.timestamp - last;
+        uint256 rateBps = InterestRateModel.rateBpsForTier(tier);
+        uint256 multiplierRay = RAY + (rateBps * RAY / BPS) * elapsed / SECONDS_PER_YEAR;
+        borrowIndexRay[tier] = (borrowIndexRay[tier] * multiplierRay) / RAY;
+        lastAccrualTimestamp[tier] = block.timestamp;
+    }
+
+    function _getBorrowIndexRayView(uint256 tier) internal view returns (uint256) {
+        uint256 idx = borrowIndexRay[tier];
+        uint256 last = lastAccrualTimestamp[tier];
+        if (block.timestamp <= last) return idx;
+
+        uint256 elapsed = block.timestamp - last;
+        uint256 rateBps = InterestRateModel.rateBpsForTier(tier);
+        uint256 multiplierRay = RAY + (rateBps * RAY / BPS) * elapsed / SECONDS_PER_YEAR;
+        return (idx * multiplierRay) / RAY;
+    }
 
     function _getTermsFromScore(uint256 score)
         internal
         pure
         returns (uint256 ltvBps, uint256 interestRateBps)
     {
-        if (score >= 851) return (8500, 500);   // 85% LTV, 5% APY
-        if (score >= 700) return (7500, 700);    // 75% LTV, 7% APY
-        if (score >= 400) return (6500, 1000);   // 65% LTV, 10% APY
-        return (5000, 1500);                     // 50% LTV, 15% APY
+        if (score >= 851) return (8500, 500);
+        if (score >= 700) return (7500, 700);
+        if (score >= 400) return (6500, 1000);
+        return (5000, 1500);
     }
 }

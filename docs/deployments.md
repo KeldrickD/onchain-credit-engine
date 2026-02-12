@@ -17,8 +17,10 @@
 2. TreasuryVault(usdc, owner) — fund with USDC
 3. RiskOracle(oracleSigner)
 4. CreditRegistry(riskOracle)
-5. LoanEngine(creditRegistry, vault, usdc, collateral)
-6. `vault.setLoanEngine(loanEngine)` (owner)
+5. PriceRouter, CollateralManager, SignedPriceOracle (or Chainlink feeds)
+6. LoanEngine(creditRegistry, vault, usdc, priceRouter, collateralManager)
+7. `vault.setLoanEngine(loanEngine)`, `collateralManager.setLoanEngine(loanEngine)` (owner)
+8. LiquidationManager(loanEngine, collateralManager, usdc, vault, priceRouter)
 
 ### Post-Deploy
 
