@@ -28,7 +28,10 @@ contract RiskOracle is IRiskOracle {
     /// @notice Authorized oracle signer (backend key)
     address public immutable oracleSigner;
 
-    /// @notice Tracks consumed nonces: keccak256(user, nonce) => true if used
+    /// @notice Next nonce per user (sequential, prevents replay)
+    mapping(address => uint256) public nextNonce;
+
+    /// @notice Tracks consumed nonces: keccak256(user, nonce) => true if used (legacy)
     mapping(bytes32 => bool) public usedNonces;
 
     // -------------------------------------------------------------------------
@@ -36,6 +39,16 @@ contract RiskOracle is IRiskOracle {
     // -------------------------------------------------------------------------
 
     event RiskPayloadVerified(address indexed user, uint256 nonce, uint256 score);
+    event RiskPayloadV2Verified(
+        address indexed user,
+        uint64 nonce,
+        uint16 score,
+        uint8 riskTier,
+        uint16 confidenceBps,
+        bytes32 modelId,
+        bytes32 reasonsHash,
+        bytes32 evidenceHash
+    );
     event NonceConsumed(address indexed user, uint256 nonce);
 
     // -------------------------------------------------------------------------
@@ -82,6 +95,36 @@ contract RiskOracle is IRiskOracle {
         return _verify(payload, signature);
     }
 
+    /// @inheritdoc IRiskOracle
+    function verifyRiskPayloadV2(RiskPayloadV2 calldata payload, bytes calldata signature)
+        external
+        override
+        returns (bool)
+    {
+        _validateAndConsumeV2(payload, signature);
+        emit RiskPayloadV2Verified(
+            payload.user,
+            payload.nonce,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash
+        );
+        return true;
+    }
+
+    /// @inheritdoc IRiskOracle
+    function verifyRiskPayloadV2View(RiskPayloadV2 calldata payload, bytes calldata signature)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return _verifyV2(payload, signature);
+    }
+
     /// @notice Returns the EIP-712 domain separator
     function domainSeparator() external view returns (bytes32) {
         return
@@ -94,6 +137,26 @@ contract RiskOracle is IRiskOracle {
             payload.user,
             payload.score,
             payload.riskTier,
+            payload.timestamp,
+            payload.nonce
+        );
+        return
+            SignatureVerifier.toTypedDataHash(
+                SignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+                structHash
+            );
+    }
+
+    /// @notice Returns the EIP-712 digest for a v2 payload
+    function getPayloadDigestV2(RiskPayloadV2 calldata payload) external view returns (bytes32) {
+        bytes32 structHash = SignatureVerifier.hashRiskPayloadV2(
+            payload.user,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
             payload.timestamp,
             payload.nonce
         );
@@ -121,8 +184,8 @@ contract RiskOracle is IRiskOracle {
         if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) {
             return false; // Expired
         }
-        if (usedNonces[_nonceKey(payload.user, payload.nonce)]) {
-            return false; // Replay
+        if (payload.nonce != nextNonce[payload.user]) {
+            return false; // Wrong/replayed nonce
         }
 
         bytes32 structHash = SignatureVerifier.hashRiskPayload(
@@ -149,8 +212,8 @@ contract RiskOracle is IRiskOracle {
             revert RiskOracle_ExpiredTimestamp();
         }
 
-        bytes32 key = _nonceKey(payload.user, payload.nonce);
-        if (usedNonces[key]) revert RiskOracle_ReplayAttack();
+        if (payload.nonce != nextNonce[payload.user]) revert RiskOracle_ReplayAttack();
+        nextNonce[payload.user]++;
 
         bytes32 structHash = SignatureVerifier.hashRiskPayload(
             payload.user,
@@ -168,7 +231,65 @@ contract RiskOracle is IRiskOracle {
         address signer = SignatureVerifier.recover(digest, signature);
         if (signer != oracleSigner) revert RiskOracle_InvalidSignature();
 
-        usedNonces[key] = true;
+        usedNonces[_nonceKey(payload.user, payload.nonce)] = true;
+        emit NonceConsumed(payload.user, payload.nonce);
+    }
+
+    function _verifyV2(RiskPayloadV2 calldata payload, bytes calldata signature)
+        internal
+        view
+        returns (bool)
+    {
+        if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) return false;
+        if (payload.nonce != nextNonce[payload.user]) return false;
+
+        bytes32 structHash = SignatureVerifier.hashRiskPayloadV2(
+            payload.user,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
+            payload.timestamp,
+            payload.nonce
+        );
+        bytes32 digest = SignatureVerifier.toTypedDataHash(
+            SignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+            structHash
+        );
+        return SignatureVerifier.recover(digest, signature) == oracleSigner;
+    }
+
+    function _validateAndConsumeV2(RiskPayloadV2 calldata payload, bytes calldata signature)
+        internal
+    {
+        if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) {
+            revert RiskOracle_ExpiredTimestamp();
+        }
+        if (payload.nonce != nextNonce[payload.user]) revert RiskOracle_ReplayAttack();
+        nextNonce[payload.user]++;
+
+        bytes32 structHash = SignatureVerifier.hashRiskPayloadV2(
+            payload.user,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
+            payload.timestamp,
+            payload.nonce
+        );
+        bytes32 digest = SignatureVerifier.toTypedDataHash(
+            SignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+            structHash
+        );
+        if (SignatureVerifier.recover(digest, signature) != oracleSigner) {
+            revert RiskOracle_InvalidSignature();
+        }
+
+        usedNonces[_nonceKey(payload.user, payload.nonce)] = true;
         emit NonceConsumed(payload.user, payload.nonce);
     }
 

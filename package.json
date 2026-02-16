@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "risk:sim": "pnpm --filter risk-sim run sim",
-    "monitor": "pnpm --filter monitor run monitor"
+    "monitor": "pnpm --filter monitor run monitor",
+    "frontend": "pnpm --filter ocx-frontend run dev",
+    "frontend:build": "pnpm --filter ocx-frontend run build",
+    "oracle-signer": "pnpm --filter oracle-signer run dev"
   },
   "packageManager": "pnpm@9.0.0"
 }

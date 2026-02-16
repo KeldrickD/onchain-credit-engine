@@ -35,6 +35,8 @@ interface ILoanEngine {
     function getCollateralBalance(address user, address asset) external view returns (uint256);
     function getPositionCollateralAsset(address user) external view returns (address);
     function getMaxBorrow(address user, address asset) external view returns (uint256);
+    function lastRepayAt(address user) external view returns (uint64);
+    function liquidationCount(address user) external view returns (uint32);
     function liquidationRepay(address borrower, uint256 amount) external;
     function seizeCollateral(address borrower, address to, uint256 amount) external;
 }

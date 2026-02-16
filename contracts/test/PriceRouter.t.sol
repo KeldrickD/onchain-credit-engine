@@ -108,9 +108,9 @@ contract PriceRouterTest is Test {
     function test_SignedOracle_ReadAfterVerify() public {
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         bytes memory sig = _signPricePayload(payload);
         signedOracle.verifyPricePayload(payload, sig);
@@ -123,7 +123,6 @@ contract PriceRouterTest is Test {
         (uint256 price, uint256 updatedAt, bool isStale) =
             router.getPriceUSD8(address(collateral));
 
-        // USDC6 1e6 -> USD8 1e8
         assertEq(price, 1e8);
         assertEq(updatedAt, block.timestamp);
         assertFalse(isStale);
@@ -132,9 +131,9 @@ contract PriceRouterTest is Test {
     function test_SignedOracle_StalenessFlag() public {
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         signedOracle.verifyPricePayload(payload, _signPricePayload(payload));
 
@@ -154,26 +153,27 @@ contract PriceRouterTest is Test {
     // updateSignedPriceAndGet (Option B)
     // -------------------------------------------------------------------------
 
-    function test_UpdateSignedPriceAndGet_Succeeds() public {
+    function test_UpdateSignedPriceAndGet_ReturnsUSD8() public {
         vm.startPrank(owner);
         router.setSignedOracle(address(collateral), address(signedOracle));
         router.setSource(address(collateral), IPriceRouter.Source.SIGNED);
         vm.stopPrank();
 
+        uint256 expectedPriceUSD8 = 2500e8;
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 2500e6,
+            price: expectedPriceUSD8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         bytes memory sig = _signPricePayload(payload);
 
         uint256 price = router.updateSignedPriceAndGet(address(collateral), payload, sig);
 
-        assertEq(price, 2500e8);
+        assertEq(price, expectedPriceUSD8, "updateSignedPriceAndGet returns USD8");
 
         (uint256 readPrice,,) = router.getPriceUSD8(address(collateral));
-        assertEq(readPrice, 2500e8);
+        assertEq(readPrice, expectedPriceUSD8);
     }
 
     function test_UpdateSignedPriceAndGet_WrongAsset_Reverts() public {
@@ -185,9 +185,9 @@ contract PriceRouterTest is Test {
 
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         bytes memory sig = _signPricePayload(payload);
 
@@ -203,9 +203,9 @@ contract PriceRouterTest is Test {
 
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         bytes memory sig = _signPricePayload(payload);
 
@@ -236,9 +236,9 @@ contract PriceRouterTest is Test {
 
         IPriceOracle.PricePayload memory payload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 999e6,
+            price: 999e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         signedOracle.verifyPricePayload(payload, _signPricePayload(payload));
 

@@ -26,3 +26,13 @@
 
 - Fund vault with USDC (or have LPs deposit)
 - Fund oracle signer for gas
+- Run `backend/oracle-signer` with RISK_SIGNER_PRIVATE_KEY, PRICE_SIGNER_PRIVATE_KEY
+
+### Oracle Signer Backend
+
+For borrow flow, the frontend calls `POST /risk/sign` to get a signed risk payload. The backend:
+- Fetches an unused nonce from `RiskOracle.isNonceUsed(user, nonce)`
+- Signs EIP-712 with the oracle key
+- Returns `{ payload, signature }`
+
+For price (admin/dev): `POST /price/sign` with `{ asset, priceUSD8 }`. Fetches nonce from `SignedPriceOracle.isNonceUsed(asset, nonce)`.

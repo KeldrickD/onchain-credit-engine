@@ -130,18 +130,14 @@ contract LoanEngineTest is Test {
         );
     }
 
-    function _makePayload(uint256 score, uint256 nonce)
-        internal
-        view
-        returns (IRiskOracle.RiskPayload memory)
-    {
+    function _makePayload(uint256 score) internal view returns (IRiskOracle.RiskPayload memory) {
         return
             IRiskOracle.RiskPayload({
                 user: borrower,
                 score: score,
                 riskTier: score >= 700 ? 1 : (score >= 400 ? 2 : 3),
                 timestamp: block.timestamp,
-                nonce: nonce
+                nonce: riskOracle.nextNonce(borrower)
             });
     }
 
@@ -157,7 +153,7 @@ contract LoanEngineTest is Test {
         vm.startPrank(borrower);
         IERC20(asset).approve(address(engine), collAmount);
         engine.depositCollateral(asset, collAmount);
-        IRiskOracle.RiskPayload memory payload = _makePayload(score, 1);
+        IRiskOracle.RiskPayload memory payload = _makePayload(score);
         bytes memory sig = _signPayload(payload);
         engine.openLoan(asset, borrowAmount, payload, sig);
         vm.stopPrank();
@@ -207,7 +203,7 @@ contract LoanEngineTest is Test {
     function test_MaxBorrow_UsesHaircutAndCap() public {
         // WBTC: haircut 9500 (5% reduction), ltvBpsCap 7000. Score 850 would give 85% LTV but cap forces 70%
         vm.startPrank(borrower);
-        creditRegistry.updateCreditProfile(_makePayload(850, 1), _signPayload(_makePayload(850, 1)));
+        creditRegistry.updateCreditProfile(_makePayload(850), _signPayload(_makePayload(850)));
         wbtc.approve(address(engine), 1e8);
         engine.depositCollateral(address(wbtc), 1e8);
         vm.stopPrank();
@@ -217,7 +213,7 @@ contract LoanEngineTest is Test {
         assertEq(maxBorrow, 33_250e6);
 
         vm.startPrank(borrower);
-        engine.openLoan(address(wbtc), 33_250e6, _makePayload(850, 2), _signPayload(_makePayload(850, 2)));
+        engine.openLoan(address(wbtc), 33_250e6, _makePayload(850), _signPayload(_makePayload(850)));
         vm.stopPrank();
         assertEq(engine.getPosition(borrower).principalAmount, 33_250e6);
     }
@@ -235,7 +231,7 @@ contract LoanEngineTest is Test {
     }
 
     function test_OpenLoan_FailsWithoutCollateral() public {
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 1);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         bytes memory sig = _signPayload(payload);
 
         vm.prank(borrower);
@@ -249,7 +245,7 @@ contract LoanEngineTest is Test {
         engine.depositCollateral(address(weth), 100e18);
         vm.stopPrank();
 
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 1);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         bytes memory sig = _signPayload(payload);
 
         vm.prank(borrower);
@@ -260,12 +256,18 @@ contract LoanEngineTest is Test {
     function test_OpenLoan_ConsumesOracleNonce_ReplayFails() public {
         _depositAndOpenLoan(address(weth), 100e18, 750, 50e6);
 
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 1);
-        bytes memory sig = _signPayload(payload);
+        IRiskOracle.RiskPayload memory replayedPayload = IRiskOracle.RiskPayload({
+            user: borrower,
+            score: 750,
+            riskTier: 2,
+            timestamp: block.timestamp,
+            nonce: 0
+        });
+        bytes memory sig = _signPayload(replayedPayload);
 
         vm.prank(borrower);
         vm.expectRevert();
-        engine.openLoan(address(weth), 10e6, payload, sig);
+        engine.openLoan(address(weth), 10e6, replayedPayload, sig);
     }
 
     function test_OpenLoan_FailsInsufficientVaultLiquidity() public {
@@ -286,7 +288,7 @@ contract LoanEngineTest is Test {
         vm.startPrank(borrower);
         weth.approve(address(engineEmpty), 100e18);
         engineEmpty.depositCollateral(address(weth), 100e18);
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 99);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         bytes memory sig = _signPayload(payload);
         vm.expectRevert(LoanEngine.LoanEngine_InsufficientVaultLiquidity.selector);
         engineEmpty.openLoan(address(weth), 75e6, payload, sig);
@@ -314,7 +316,7 @@ contract LoanEngineTest is Test {
         vm.startPrank(borrower);
         weth.approve(address(engine), 1500e18);
         engine.depositCollateral(address(weth), 1500e18);
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 1);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         engine.openLoan(address(weth), 900e6, payload, _signPayload(payload));
 
         address borrower2 = makeAddr("borrower2");
@@ -329,7 +331,7 @@ contract LoanEngineTest is Test {
             score: 750,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 200
+            nonce: riskOracle.nextNonce(borrower2)
         });
         bytes memory sig2 = _signPayload(p2);
         vm.expectRevert(CollateralManager.CollateralManager_DebtCeilingExceeded.selector);
@@ -435,7 +437,7 @@ contract LoanEngineTest is Test {
     function test_OpenLoan_ActiveLoan_Reverts() public {
         _depositAndOpenLoan(address(weth), 100e18, 750, 50e6);
 
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 2);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         bytes memory sig = _signPayload(payload);
         vm.prank(borrower);
         vm.expectRevert(LoanEngine.LoanEngine_ActiveLoanExists.selector);
@@ -462,7 +464,7 @@ contract LoanEngineTest is Test {
 
     function test_Decimals_WBTC_ConvertsCorrectly() public {
         vm.startPrank(borrower);
-        creditRegistry.updateCreditProfile(_makePayload(850, 1), _signPayload(_makePayload(850, 1)));
+        creditRegistry.updateCreditProfile(_makePayload(850), _signPayload(_makePayload(850)));
         wbtc.approve(address(engine), 1e8);
         engine.depositCollateral(address(wbtc), 1e8);
         vm.stopPrank();
@@ -477,7 +479,7 @@ contract LoanEngineTest is Test {
 
     function test_GetTerms_ScoreBands() public {
         vm.startPrank(borrower);
-        creditRegistry.updateCreditProfile(_makePayload(400, 10), _signPayload(_makePayload(400, 10)));
+        creditRegistry.updateCreditProfile(_makePayload(400), _signPayload(_makePayload(400)));
         vm.stopPrank();
 
         ILoanEngine.LoanTerms memory t400 = engine.getTerms(borrower);
@@ -485,7 +487,7 @@ contract LoanEngineTest is Test {
         assertEq(t400.interestRateBps, 1000);
 
         vm.startPrank(borrower);
-        creditRegistry.updateCreditProfile(_makePayload(700, 11), _signPayload(_makePayload(700, 11)));
+        creditRegistry.updateCreditProfile(_makePayload(700), _signPayload(_makePayload(700)));
         vm.stopPrank();
 
         ILoanEngine.LoanTerms memory t700 = engine.getTerms(borrower);
@@ -493,7 +495,7 @@ contract LoanEngineTest is Test {
         assertEq(t700.interestRateBps, 700);
 
         vm.startPrank(borrower);
-        creditRegistry.updateCreditProfile(_makePayload(900, 12), _signPayload(_makePayload(900, 12)));
+        creditRegistry.updateCreditProfile(_makePayload(900), _signPayload(_makePayload(900)));
         vm.stopPrank();
 
         ILoanEngine.LoanTerms memory t900 = engine.getTerms(borrower);
@@ -550,7 +552,7 @@ contract LoanEngineTest is Test {
             score: 400,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 100
+            nonce: riskOracle.nextNonce(borrowerB)
         });
         engine.openLoan(address(weth), 50e6, p400, _signPayload(p400));
         vm.stopPrank();
@@ -572,7 +574,7 @@ contract LoanEngineTest is Test {
             score: 750,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: riskOracle.nextNonce(otherUser)
         });
         bytes memory sig = _signPayload(payload);
 
@@ -589,7 +591,7 @@ contract LoanEngineTest is Test {
         vm.startPrank(borrower);
         weth.approve(address(engine), 100e18);
         engine.depositCollateral(address(weth), 100e18);
-        IRiskOracle.RiskPayload memory payload = _makePayload(750, 1);
+        IRiskOracle.RiskPayload memory payload = _makePayload(750);
         bytes memory sig = _signPayload(payload);
         vm.expectRevert(LoanEngine.LoanEngine_PriceStale.selector);
         engine.openLoan(address(weth), 75e6, payload, sig);

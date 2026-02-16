@@ -1,3 +1,5 @@
 packages:
   - "backend/risk-sim"
   - "backend/monitor"
+  - "backend/oracle-signer"
+  - "frontend"

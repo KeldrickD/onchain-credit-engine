@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 interface IPriceOracle {
     struct PricePayload {
         address asset;
-        uint256 price;   // USDC decimals (6)
+        uint256 price;   // USD8 (8 decimals, Chainlink standard)
         uint256 timestamp;
         uint256 nonce;
     }

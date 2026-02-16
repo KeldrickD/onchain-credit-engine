@@ -34,6 +34,17 @@ contract CreditRegistry is ICreditRegistry {
         uint256 timestamp,
         uint256 nonce
     );
+    event CreditProfileUpdatedV2(
+        address indexed user,
+        uint16 score,
+        uint8 riskTier,
+        uint16 confidenceBps,
+        bytes32 modelId,
+        bytes32 reasonsHash,
+        bytes32 evidenceHash,
+        uint64 timestamp,
+        uint64 nonce
+    );
 
     // -------------------------------------------------------------------------
     // Errors
@@ -41,6 +52,7 @@ contract CreditRegistry is ICreditRegistry {
 
     error CreditRegistry_ScoreOutOfRange();
     error CreditRegistry_InvalidTier();
+    error CreditRegistry_InvalidConfidence();
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -70,14 +82,50 @@ contract CreditRegistry is ICreditRegistry {
             score: payload.score,
             riskTier: payload.riskTier,
             lastUpdated: block.timestamp,
-            modelId: 0,
-            confidenceBps: 0
+            modelId: bytes32(0),
+            confidenceBps: 0,
+            reasonsHash: bytes32(0),
+            evidenceHash: bytes32(0)
         });
 
         emit CreditProfileUpdated(
             payload.user,
             payload.score,
             payload.riskTier,
+            payload.timestamp,
+            payload.nonce
+        );
+    }
+
+    /// @inheritdoc ICreditRegistry
+    function updateCreditProfileV2(
+        IRiskOracle.RiskPayloadV2 calldata payload,
+        bytes calldata signature
+    ) external override {
+        if (payload.score > MAX_SCORE) revert CreditRegistry_ScoreOutOfRange();
+        if (payload.riskTier > 3) revert CreditRegistry_InvalidTier();
+        if (payload.confidenceBps > 10_000) revert CreditRegistry_InvalidConfidence();
+
+        riskOracle.verifyRiskPayloadV2(payload, signature);
+
+        profiles[payload.user] = CreditProfile({
+            score: payload.score,
+            riskTier: payload.riskTier,
+            lastUpdated: block.timestamp,
+            modelId: payload.modelId,
+            confidenceBps: payload.confidenceBps,
+            reasonsHash: payload.reasonsHash,
+            evidenceHash: payload.evidenceHash
+        });
+
+        emit CreditProfileUpdatedV2(
+            payload.user,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
             payload.timestamp,
             payload.nonce
         );

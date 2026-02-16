@@ -12,6 +12,22 @@ library SignatureVerifier {
             "RiskPayload(address user,uint256 score,uint256 riskTier,uint256 timestamp,uint256 nonce)"
         );
 
+    // RiskPayloadV2(
+    //   address user,
+    //   uint16 score,
+    //   uint8 riskTier,
+    //   uint16 confidenceBps,
+    //   bytes32 modelId,
+    //   bytes32 reasonsHash,
+    //   bytes32 evidenceHash,
+    //   uint64 timestamp,
+    //   uint64 nonce
+    // )
+    bytes32 internal constant RISK_PAYLOAD_V2_TYPEHASH =
+        keccak256(
+            "RiskPayloadV2(address user,uint16 score,uint8 riskTier,uint16 confidenceBps,bytes32 modelId,bytes32 reasonsHash,bytes32 evidenceHash,uint64 timestamp,uint64 nonce)"
+        );
+
     // EIP-712 Domain typehash
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256(
@@ -55,6 +71,34 @@ library SignatureVerifier {
         return
             keccak256(
                 abi.encode(RISK_PAYLOAD_TYPEHASH, user, score, riskTier, timestamp, nonce)
+            );
+    }
+
+    function hashRiskPayloadV2(
+        address user,
+        uint16 score,
+        uint8 riskTier,
+        uint16 confidenceBps,
+        bytes32 modelId,
+        bytes32 reasonsHash,
+        bytes32 evidenceHash,
+        uint64 timestamp,
+        uint64 nonce
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    RISK_PAYLOAD_V2_TYPEHASH,
+                    user,
+                    score,
+                    riskTier,
+                    confidenceBps,
+                    modelId,
+                    reasonsHash,
+                    evidenceHash,
+                    timestamp,
+                    nonce
+                )
             );
     }
 

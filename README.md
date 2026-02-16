@@ -57,6 +57,10 @@ pnpm risk:sim
 
 # Run monitor (requires RPC; set addresses in backend/monitor/config.json after deploy)
 pnpm monitor -- --rpc $BASE_SEPOLIA_RPC_URL --lookback 5000 --step 1000
+
+# Run frontend (Next.js + wagmi)
+cd frontend && cp .env.example .env.local  # then edit .env.local with contract addresses
+pnpm frontend  # or: cd frontend && pnpm dev
 ```
 
 ## Threat Model

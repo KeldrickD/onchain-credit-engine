@@ -10,7 +10,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @notice Unified price source: Chainlink (production) or SignedPriceOracle (dev/staging).
 ///         Output always USD8 (Chainlink standard).
 contract PriceRouter is IPriceRouter, Ownable {
-    uint256 private constant USDC6_TO_USD8 = 100; // 8 - 6 decimals
     uint256 private constant DEFAULT_STALE_PERIOD = 3600; // 1 hour for chainlink
 
     struct AssetConfig {
@@ -135,11 +134,8 @@ contract PriceRouter is IPriceRouter, Ownable {
         updatedAt = updatedAt_;
     }
 
-    /// @dev SignedPriceOracle stores price in USDC6. Scale to USD8: multiply by 100.
+    /// @dev SignedPriceOracle stores price in USD8 (unified with Chainlink).
     function _readSigned(address oracle, address asset) internal view returns (uint256 priceUSD8, uint256 updatedAt) {
-        (uint256 priceUSDC6, uint256 lastUpdated) = IPriceOracle(oracle).getPrice(asset);
-        if (priceUSDC6 == 0) return (0, lastUpdated);
-        priceUSD8 = priceUSDC6 * USDC6_TO_USD8;
-        updatedAt = lastUpdated;
+        (priceUSD8, updatedAt) = IPriceOracle(oracle).getPrice(asset);
     }
 }

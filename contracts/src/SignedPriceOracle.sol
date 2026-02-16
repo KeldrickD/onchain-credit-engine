@@ -13,6 +13,9 @@ contract SignedPriceOracle is IPriceOracle {
 
     address public immutable oracleSigner;
 
+    /// @notice Next nonce per asset (sequential, prevents replay)
+    mapping(address => uint256) public nextNonce;
+
     mapping(bytes32 => bool) public usedNonces;
     mapping(address => uint256) private _price;
     mapping(address => uint256) private _lastUpdated;
@@ -52,6 +55,11 @@ contract SignedPriceOracle is IPriceOracle {
         return (_price[asset], _lastUpdated[asset]);
     }
 
+    /// @notice Checks if a nonce has been consumed for an asset
+    function isNonceUsed(address asset, uint256 nonce) external view returns (bool) {
+        return usedNonces[_nonceKey(asset, nonce)];
+    }
+
     function getPricePayloadDigest(PricePayload calldata payload) external view returns (bytes32) {
         bytes32 structHash =
             PriceSignatureVerifier.hashPricePayload(
@@ -73,7 +81,7 @@ contract SignedPriceOracle is IPriceOracle {
         returns (bool)
     {
         if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) return false;
-        if (usedNonces[_nonceKey(payload.asset, payload.nonce)]) return false;
+        if (payload.nonce != nextNonce[payload.asset]) return false;
 
         bytes32 structHash =
             PriceSignatureVerifier.hashPricePayload(
@@ -93,8 +101,8 @@ contract SignedPriceOracle is IPriceOracle {
         if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) {
             revert SignedPriceOracle_ExpiredTimestamp();
         }
-        bytes32 key = _nonceKey(payload.asset, payload.nonce);
-        if (usedNonces[key]) revert SignedPriceOracle_ReplayAttack();
+        if (payload.nonce != nextNonce[payload.asset]) revert SignedPriceOracle_ReplayAttack();
+        nextNonce[payload.asset]++;
 
         bytes32 structHash =
             PriceSignatureVerifier.hashPricePayload(
@@ -110,7 +118,7 @@ contract SignedPriceOracle is IPriceOracle {
         if (PriceSignatureVerifier.recover(digest, signature) != oracleSigner) {
             revert SignedPriceOracle_InvalidSignature();
         }
-        usedNonces[key] = true;
+        usedNonces[_nonceKey(payload.asset, payload.nonce)] = true;
     }
 
     function _nonceKey(address asset, uint256 nonce) internal pure returns (bytes32) {

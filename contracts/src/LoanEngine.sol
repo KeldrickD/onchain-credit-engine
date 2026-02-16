@@ -45,6 +45,8 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
         uint256 userTier;
     }
     mapping(address => PositionStorage) private positions;
+    mapping(address => uint64) public lastRepayAt;
+    mapping(address => uint32) public liquidationCount;
 
     mapping(uint256 => uint256) private borrowIndexRay;
     mapping(uint256 => uint256) private lastAccrualTimestamp;
@@ -199,6 +201,7 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
 
         collateralManager.decreaseDebt(asset, uint128(repayAmount));
         pos.scaledDebtRay -= (repayAmount * RAY) / idx;
+        lastRepayAt[msg.sender] = uint64(block.timestamp);
         uint256 remaining = (pos.scaledDebtRay * idx) / RAY;
         emit LoanRepaid(msg.sender, repayAmount, remaining);
     }
@@ -267,6 +270,8 @@ contract LoanEngine is ILoanEngine, ReentrancyGuard, Ownable {
 
         pos.scaledDebtRay -= (repayAmount * RAY) / idx;
         collateralManager.decreaseDebt(asset, uint128(repayAmount));
+        liquidationCount[borrower]++;
+        lastRepayAt[borrower] = uint64(block.timestamp);
         uint256 remaining = (pos.scaledDebtRay * idx) / RAY;
         emit LiquidationRepay(borrower, repayAmount, remaining);
     }
