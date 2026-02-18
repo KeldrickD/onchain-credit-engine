@@ -102,6 +102,20 @@ export type AttestationSignResponse = {
   signature: `0x${string}`;
 };
 
+export type SubjectAttestationSignResponse = {
+  payload: {
+    subjectId: string;
+    attestationType: string;
+    dataHash: string;
+    data: string;
+    uri: string;
+    issuedAt: string;
+    expiresAt: string;
+    nonce: string;
+  };
+  signature: `0x${string}`;
+};
+
 export type AttestationSignPayload = {
   subject: string;
   attestationType: string;
@@ -134,6 +148,33 @@ export async function fetchAttestationSignature(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "Attestation sign failed");
+  }
+  return res.json();
+}
+
+export async function fetchSubjectAttestationSignature(
+  subjectId: string,
+  attestationType: string,
+  dataHash: string,
+  uri?: string,
+  expiresAt?: string,
+  data?: string
+): Promise<SubjectAttestationSignResponse> {
+  const res = await fetch(`${oracleSignerUrl}/attestation/subject-sign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      subjectId,
+      attestationType,
+      dataHash,
+      data: data ?? "0",
+      uri: uri ?? "",
+      expiresAt: expiresAt ?? "0",
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Subject attestation sign failed");
   }
   return res.json();
 }

@@ -8,6 +8,10 @@ library AttestationSignatureVerifier {
         keccak256(
             "Attestation(address subject,bytes32 attestationType,bytes32 dataHash,bytes32 data,string uri,uint64 issuedAt,uint64 expiresAt,uint64 nonce)"
         );
+    bytes32 internal constant SUBJECT_ATTESTATION_TYPEHASH =
+        keccak256(
+            "SubjectAttestation(bytes32 subjectId,bytes32 attestationType,bytes32 dataHash,bytes32 data,string uri,uint64 issuedAt,uint64 expiresAt,uint64 nonce)"
+        );
 
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256(
@@ -46,6 +50,32 @@ library AttestationSignatureVerifier {
                 abi.encode(
                     ATTESTATION_TYPEHASH,
                     subject,
+                    attestationType,
+                    dataHash,
+                    data,
+                    keccak256(bytes(uri)),
+                    issuedAt,
+                    expiresAt,
+                    nonce
+                )
+            );
+    }
+
+    function hashSubjectAttestation(
+        bytes32 subjectId,
+        bytes32 attestationType,
+        bytes32 dataHash,
+        bytes32 data,
+        string calldata uri,
+        uint64 issuedAt,
+        uint64 expiresAt,
+        uint64 nonce
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    SUBJECT_ATTESTATION_TYPEHASH,
+                    subjectId,
                     attestationType,
                     dataHash,
                     data,

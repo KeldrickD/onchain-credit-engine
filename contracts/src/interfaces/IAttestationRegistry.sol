@@ -26,9 +26,41 @@ interface IAttestationRegistry {
         address issuer;
     }
 
+    struct SubjectAttestation {
+        bytes32 subjectId;
+        bytes32 attestationType;
+        bytes32 dataHash;
+        bytes32 data;
+        string uri;
+        uint64 issuedAt;
+        uint64 expiresAt;
+        uint64 nonce;
+    }
+
+    struct StoredSubjectAttestation {
+        bytes32 subjectId;
+        bytes32 attestationType;
+        bytes32 dataHash;
+        bytes32 data;
+        string uri;
+        uint64 issuedAt;
+        uint64 expiresAt;
+        address issuer;
+    }
+
     event Attested(
         bytes32 indexed attestationId,
         address indexed subject,
+        bytes32 indexed attestationType,
+        address issuer,
+        uint64 issuedAt,
+        uint64 expiresAt,
+        bytes32 dataHash,
+        string uri
+    );
+    event SubjectAttested(
+        bytes32 indexed attestationId,
+        bytes32 indexed subjectId,
         bytes32 indexed attestationType,
         address issuer,
         uint64 issuedAt,
@@ -43,10 +75,14 @@ interface IAttestationRegistry {
     error AttestationRegistry_InvalidNonce();
     error AttestationRegistry_InvalidExpiry();
     error AttestationRegistry_InvalidSubject();
+    error AttestationRegistry_InvalidSubjectId();
     error AttestationRegistry_AlreadyRevoked();
     error AttestationRegistry_NotRevocable();
 
     function submitAttestation(Attestation calldata a, bytes calldata signature) external returns (bytes32 attestationId);
+    function submitSubjectAttestation(SubjectAttestation calldata a, bytes calldata signature)
+        external
+        returns (bytes32 attestationId);
     function revoke(bytes32 attestationId) external;
 
     function getLatest(address subject, bytes32 attestationType)
@@ -55,12 +91,22 @@ interface IAttestationRegistry {
         returns (StoredAttestation memory att, bool revoked, bool expired);
 
     function getLatestAttestationId(address subject, bytes32 attestationType) external view returns (bytes32);
+    function getLatestSubject(bytes32 subjectId, bytes32 attestationType)
+        external
+        view
+        returns (StoredSubjectAttestation memory att, bool revoked, bool expired);
+    function getLatestSubjectAttestationId(bytes32 subjectId, bytes32 attestationType) external view returns (bytes32);
 
     function getAttestation(bytes32 attestationId)
         external
         view
         returns (StoredAttestation memory att, bool revoked, bool expired);
+    function getSubjectAttestation(bytes32 attestationId)
+        external
+        view
+        returns (StoredSubjectAttestation memory att, bool revoked, bool expired);
 
     function isValid(bytes32 attestationId) external view returns (bool);
     function nextNonce(address subject) external view returns (uint64);
+    function nextSubjectNonce(bytes32 subjectId) external view returns (uint64);
 }

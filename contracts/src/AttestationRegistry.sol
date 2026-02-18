@@ -25,10 +25,27 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         address issuer;
     }
 
+    struct StoredSubjectAttestationInternal {
+        bytes32 subjectId;
+        bytes32 attestationType;
+        bytes32 dataHash;
+        bytes32 data;
+        string uri;
+        uint64 issuedAt;
+        uint64 expiresAt;
+        address issuer;
+    }
+
+    bytes32 private constant SUBJECT_ATTESTATION_ID_PREFIX = keccak256("SUBJECT_ATTESTATION_V1");
+
     mapping(bytes32 => StoredAttestationInternal) private _attestations;
+    mapping(bytes32 => StoredSubjectAttestationInternal) private _subjectAttestations;
     mapping(address => mapping(bytes32 => bytes32)) private _latestBySubjectAndType;
+    mapping(bytes32 => mapping(bytes32 => bytes32)) private _latestBySubjectIdAndType;
     mapping(address => uint64) public nextNonce;
+    mapping(bytes32 => uint64) public nextSubjectNonce;
     mapping(bytes32 => bool) private _revoked;
+    mapping(bytes32 => address) private _issuerByAttestationId;
 
     constructor(address admin) AccessControl() {
         if (admin == address(0)) revert AttestationRegistry_InvalidSubject();
@@ -77,6 +94,7 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         });
         _latestBySubjectAndType[a.subject][a.attestationType] = attestationId;
         nextNonce[a.subject] = a.nonce + 1;
+        _issuerByAttestationId[attestationId] = issuer;
 
         emit Attested(
             attestationId,
@@ -90,12 +108,77 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         );
     }
 
+    function submitSubjectAttestation(SubjectAttestation calldata a, bytes calldata signature)
+        external
+        override
+        returns (bytes32 attestationId)
+    {
+        if (a.subjectId == bytes32(0)) revert AttestationRegistry_InvalidSubjectId();
+        if (a.nonce != nextSubjectNonce[a.subjectId]) revert AttestationRegistry_InvalidNonce();
+        if (a.expiresAt != 0 && a.expiresAt <= a.issuedAt) revert AttestationRegistry_InvalidExpiry();
+
+        bytes32 structHash = AttestationSignatureVerifier.hashSubjectAttestation(
+            a.subjectId,
+            a.attestationType,
+            a.dataHash,
+            a.data,
+            a.uri,
+            a.issuedAt,
+            a.expiresAt,
+            a.nonce
+        );
+        bytes32 digest = AttestationSignatureVerifier.toTypedDataHash(
+            AttestationSignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+            structHash
+        );
+        address issuer = AttestationSignatureVerifier.recover(digest, signature);
+        if (!hasRole(ISSUER_ROLE, issuer)) revert AttestationRegistry_IssuerNotAllowed();
+
+        attestationId = keccak256(
+            abi.encode(
+                SUBJECT_ATTESTATION_ID_PREFIX,
+                a.subjectId,
+                a.attestationType,
+                a.dataHash,
+                a.data,
+                a.issuedAt,
+                issuer,
+                a.nonce
+            )
+        );
+
+        _subjectAttestations[attestationId] = StoredSubjectAttestationInternal({
+            subjectId: a.subjectId,
+            attestationType: a.attestationType,
+            dataHash: a.dataHash,
+            data: a.data,
+            uri: a.uri,
+            issuedAt: a.issuedAt,
+            expiresAt: a.expiresAt,
+            issuer: issuer
+        });
+        _latestBySubjectIdAndType[a.subjectId][a.attestationType] = attestationId;
+        nextSubjectNonce[a.subjectId] = a.nonce + 1;
+        _issuerByAttestationId[attestationId] = issuer;
+
+        emit SubjectAttested(
+            attestationId,
+            a.subjectId,
+            a.attestationType,
+            issuer,
+            a.issuedAt,
+            a.expiresAt,
+            a.dataHash,
+            a.uri
+        );
+    }
+
     function revoke(bytes32 attestationId) external override {
-        StoredAttestationInternal storage att = _attestations[attestationId];
-        if (att.issuer == address(0)) revert AttestationRegistry_NotRevocable();
+        address issuer = _issuerByAttestationId[attestationId];
+        if (issuer == address(0)) revert AttestationRegistry_NotRevocable();
         if (_revoked[attestationId]) revert AttestationRegistry_AlreadyRevoked();
 
-        bool canRevoke = hasRole(DEFAULT_ADMIN_ROLE, msg.sender) || att.issuer == msg.sender;
+        bool canRevoke = hasRole(DEFAULT_ADMIN_ROLE, msg.sender) || issuer == msg.sender;
         if (!canRevoke) revert AttestationRegistry_NotRevocable();
 
         _revoked[attestationId] = true;
@@ -119,6 +202,32 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         return _latestBySubjectAndType[subject][attestationType];
     }
 
+    function getLatestSubject(bytes32 subjectId, bytes32 attestationType)
+        external
+        view
+        override
+        returns (StoredSubjectAttestation memory att, bool revoked, bool expired)
+    {
+        bytes32 id = _latestBySubjectIdAndType[subjectId][attestationType];
+        if (id == bytes32(0)) {
+            return (
+                StoredSubjectAttestation(subjectId, attestationType, bytes32(0), bytes32(0), "", 0, 0, address(0)),
+                true,
+                false
+            );
+        }
+        return getSubjectAttestation(id);
+    }
+
+    function getLatestSubjectAttestationId(bytes32 subjectId, bytes32 attestationType)
+        external
+        view
+        override
+        returns (bytes32)
+    {
+        return _latestBySubjectIdAndType[subjectId][attestationType];
+    }
+
     function getAttestation(bytes32 attestationId)
         external
         view
@@ -130,6 +239,27 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         expired = s.expiresAt != 0 && block.timestamp >= s.expiresAt;
         att = StoredAttestation({
             subject: s.subject,
+            attestationType: s.attestationType,
+            dataHash: s.dataHash,
+            data: s.data,
+            uri: s.uri,
+            issuedAt: s.issuedAt,
+            expiresAt: s.expiresAt,
+            issuer: s.issuer
+        });
+    }
+
+    function getSubjectAttestation(bytes32 attestationId)
+        public
+        view
+        override
+        returns (StoredSubjectAttestation memory att, bool revoked, bool expired)
+    {
+        StoredSubjectAttestationInternal storage s = _subjectAttestations[attestationId];
+        revoked = _revoked[attestationId];
+        expired = s.expiresAt != 0 && block.timestamp >= s.expiresAt;
+        att = StoredSubjectAttestation({
+            subjectId: s.subjectId,
             attestationType: s.attestationType,
             dataHash: s.dataHash,
             data: s.data,
@@ -158,10 +288,34 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         );
     }
 
+    /// @notice EIP-712 digest for subject attestation (for signing offchain)
+    function getSubjectAttestationDigest(SubjectAttestation calldata a) external view returns (bytes32) {
+        bytes32 structHash = AttestationSignatureVerifier.hashSubjectAttestation(
+            a.subjectId,
+            a.attestationType,
+            a.dataHash,
+            a.data,
+            a.uri,
+            a.issuedAt,
+            a.expiresAt,
+            a.nonce
+        );
+        return AttestationSignatureVerifier.toTypedDataHash(
+            AttestationSignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+            structHash
+        );
+    }
+
     function isValid(bytes32 attestationId) external view override returns (bool) {
-        if (_attestations[attestationId].issuer == address(0)) return false;
+        if (_issuerByAttestationId[attestationId] == address(0)) return false;
         if (_revoked[attestationId]) return false;
-        StoredAttestationInternal storage s = _attestations[attestationId];
+        StoredAttestationInternal storage a = _attestations[attestationId];
+        if (a.issuer != address(0)) {
+            if (a.expiresAt != 0 && block.timestamp >= a.expiresAt) return false;
+            return true;
+        }
+        StoredSubjectAttestationInternal storage s = _subjectAttestations[attestationId];
+        if (s.issuer == address(0)) return false;
         if (s.expiresAt != 0 && block.timestamp >= s.expiresAt) return false;
         return true;
     }

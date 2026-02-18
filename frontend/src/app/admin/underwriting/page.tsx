@@ -9,7 +9,10 @@ import toast, { Toaster } from "react-hot-toast";
 import { ConnectButton } from "@/components/ConnectButton";
 import { TxButton } from "@/components/admin/TxButton";
 import { contractAddresses, adminAddress } from "@/lib/contracts";
-import { fetchAttestationSignature } from "@/lib/api";
+import {
+  fetchAttestationSignature,
+  fetchSubjectAttestationSignature,
+} from "@/lib/api";
 import { attestationRegistryAbi } from "@/abi/attestationRegistry";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as `0x${string}`;
@@ -34,6 +37,7 @@ export default function UnderwritingPage() {
     address.toLowerCase() === adminAddress.toLowerCase();
 
   const [subject, setSubject] = useState("");
+  const [subjectMode, setSubjectMode] = useState<"wallet" | "subjectId">("wallet");
   const [attestationType, setAttestationType] = useState("NOI_USD6");
   const [customTypeHex, setCustomTypeHex] = useState("");
   const [dataInput, setDataInput] = useState("");
@@ -43,12 +47,25 @@ export default function UnderwritingPage() {
 
   const hasRegistry = !isZero(contractAddresses.attestationRegistry);
 
-  const subjectAddr = subject.trim().startsWith("0x") && subject.trim().length === 42 ? (subject.trim() as `0x${string}`) : undefined;
-  const { data: nextNonce } = useReadContract({
+  const subjectAddr =
+    subject.trim().startsWith("0x") && subject.trim().length === 42
+      ? (subject.trim() as `0x${string}`)
+      : undefined;
+  const subjectIdHex =
+    subject.trim().startsWith("0x") && subject.trim().length === 66
+      ? (subject.trim() as `0x${string}`)
+      : undefined;
+  const { data: nextWalletNonce } = useReadContract({
     address: hasRegistry ? contractAddresses.attestationRegistry : undefined,
     abi: attestationRegistryAbi,
     functionName: "nextNonce",
-    args: subjectAddr ? [subjectAddr] : undefined,
+    args: subjectMode === "wallet" && subjectAddr ? [subjectAddr] : undefined,
+  });
+  const { data: nextSubjectNonce } = useReadContract({
+    address: hasRegistry ? contractAddresses.attestationRegistry : undefined,
+    abi: attestationRegistryAbi,
+    functionName: "nextSubjectNonce",
+    args: subjectMode === "subjectId" && subjectIdHex ? [subjectIdHex] : undefined,
   });
 
   const dataHash: Hex | undefined = dataInput.trim()
@@ -89,8 +106,13 @@ export default function UnderwritingPage() {
       return;
     }
     const subj = subject.trim();
-    if (!subj.startsWith("0x") || subj.length !== 42) {
-      toast.error("Subject must be a valid address (0x...)");
+    const isWalletMode = subjectMode === "wallet";
+    if (isWalletMode && (!subj.startsWith("0x") || subj.length !== 42)) {
+      toast.error("Subject wallet must be a valid address (0x...)");
+      return;
+    }
+    if (!isWalletMode && (!subj.startsWith("0x") || subj.length !== 66)) {
+      toast.error("SubjectId must be bytes32 (0x + 64 hex)");
       return;
     }
     const typeVal =
@@ -102,32 +124,64 @@ export default function UnderwritingPage() {
     try {
       toast.loading("Signing attestation…");
       const dataForBackend = dataValue.trim() || undefined;
-      const { payload, signature } = await fetchAttestationSignature(
-        subj,
-        typeVal,
-        dataHash as string,
-        uri || undefined,
-        expiresAt ? String(Math.floor(parseInt(expiresAt, 10) / 1000)) : undefined,
-        dataForBackend
-      );
+      const expiresAtSeconds = expiresAt
+        ? String(Math.floor(parseInt(expiresAt, 10) / 1000))
+        : undefined;
       toast.dismiss();
       toast.loading("Submitting tx…");
-      const att = {
-        subject: payload.subject as `0x${string}`,
-        attestationType: payload.attestationType as `0x${string}`,
-        dataHash: payload.dataHash as `0x${string}`,
-        data: (payload.data || "0x0000000000000000000000000000000000000000000000000000000000000000") as `0x${string}`,
-        uri: payload.uri,
-        issuedAt: BigInt(payload.issuedAt),
-        expiresAt: BigInt(payload.expiresAt),
-        nonce: BigInt(payload.nonce),
-      };
-      writeSubmit({
-        address: contractAddresses.attestationRegistry,
-        abi: attestationRegistryAbi,
-        functionName: "submitAttestation",
-        args: [att, signature],
-      });
+      if (isWalletMode) {
+        const { payload, signature } = await fetchAttestationSignature(
+          subj,
+          typeVal,
+          dataHash as string,
+          uri || undefined,
+          expiresAtSeconds,
+          dataForBackend
+        );
+        const att = {
+          subject: payload.subject as `0x${string}`,
+          attestationType: payload.attestationType as `0x${string}`,
+          dataHash: payload.dataHash as `0x${string}`,
+          data: (payload.data ||
+            "0x0000000000000000000000000000000000000000000000000000000000000000") as `0x${string}`,
+          uri: payload.uri,
+          issuedAt: BigInt(payload.issuedAt),
+          expiresAt: BigInt(payload.expiresAt),
+          nonce: BigInt(payload.nonce),
+        };
+        writeSubmit({
+          address: contractAddresses.attestationRegistry,
+          abi: attestationRegistryAbi,
+          functionName: "submitAttestation",
+          args: [att, signature],
+        });
+      } else {
+        const { payload, signature } = await fetchSubjectAttestationSignature(
+          subj,
+          typeVal,
+          dataHash as string,
+          uri || undefined,
+          expiresAtSeconds,
+          dataForBackend
+        );
+        const att = {
+          subjectId: payload.subjectId as `0x${string}`,
+          attestationType: payload.attestationType as `0x${string}`,
+          dataHash: payload.dataHash as `0x${string}`,
+          data: (payload.data ||
+            "0x0000000000000000000000000000000000000000000000000000000000000000") as `0x${string}`,
+          uri: payload.uri,
+          issuedAt: BigInt(payload.issuedAt),
+          expiresAt: BigInt(payload.expiresAt),
+          nonce: BigInt(payload.nonce),
+        };
+        writeSubmit({
+          address: contractAddresses.attestationRegistry,
+          abi: attestationRegistryAbi,
+          functionName: "submitSubjectAttestation",
+          args: [att, signature],
+        });
+      }
     } catch (e) {
       toast.dismiss();
       toast.error((e as Error).message);
@@ -155,16 +209,31 @@ export default function UnderwritingPage() {
         </p>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-neutral-500">Subject (address)</label>
+            <label className="mb-1 block text-sm text-neutral-500">Subject mode</label>
+            <select
+              value={subjectMode}
+              onChange={(e) => setSubjectMode(e.target.value as "wallet" | "subjectId")}
+              className="w-full rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-2 text-sm"
+            >
+              <option value="wallet">Wallet address</option>
+              <option value="subjectId">Subject ID (bytes32)</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-neutral-500">
+              {subjectMode === "wallet" ? "Subject wallet (address)" : "Subject ID (bytes32)"}
+            </label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="0x..."
+              placeholder={subjectMode === "wallet" ? "0x..." : "0x<64 hex>"}
               className="w-full rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-2 font-mono text-sm"
             />
-            {nextNonce !== undefined && (
-              <p className="mt-1 text-xs text-neutral-500">Next nonce: {String(nextNonce)}</p>
+            {(subjectMode === "wallet" ? nextWalletNonce : nextSubjectNonce) !== undefined && (
+              <p className="mt-1 text-xs text-neutral-500">
+                Next nonce: {String(subjectMode === "wallet" ? nextWalletNonce : nextSubjectNonce)}
+              </p>
             )}
           </div>
           <div>
@@ -242,7 +311,7 @@ export default function UnderwritingPage() {
             pendingLabel="Submitting…"
             disabled={!hasRegistry || !subject || !dataInput || !dataHash}
           >
-            Submit attestation
+            Submit {subjectMode === "wallet" ? "wallet" : "subject"} attestation
           </TxButton>
           {submitHash && (
             <a
@@ -263,8 +332,8 @@ export default function UnderwritingPage() {
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">
         <h2 className="mb-2 text-lg font-semibold">View attestations</h2>
         <p className="text-sm text-neutral-500">
-          Use getLatest(subject, attestationType) or getAttestation(id) from a block explorer
-          or SDK. UI for listing coming in RiskEngine v2 integration.
+          Use getLatest/getAttestation for wallet subjects, or getLatestSubject/getSubjectAttestation
+          for Subject IDs.
         </p>
       </section>
     </div>

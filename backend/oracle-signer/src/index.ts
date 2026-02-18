@@ -159,6 +159,13 @@ const attestationRegistryAbi = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [{ name: "subjectId", type: "bytes32" }],
+    name: "nextSubjectNonce",
+    outputs: [{ name: "", type: "uint64" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;
 
 async function getAttestationNonce(subject: Hex): Promise<bigint> {
@@ -170,8 +177,21 @@ async function getAttestationNonce(subject: Hex): Promise<bigint> {
   }) as Promise<bigint>;
 }
 
+async function getSubjectAttestationNonce(subjectId: Hex): Promise<bigint> {
+  return publicClient.readContract({
+    address: ATTESTATION_REGISTRY,
+    abi: attestationRegistryAbi,
+    functionName: "nextSubjectNonce",
+    args: [subjectId],
+  }) as Promise<bigint>;
+}
+
 function isValidAddress(s: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(s);
+}
+
+function isValidBytes32(s: string): boolean {
+  return /^0x[a-fA-F0-9]{64}$/.test(s);
 }
 
 // Naive in-memory rate limit: IP -> { count, resetAt }
@@ -669,6 +689,136 @@ async function bootstrap() {
     return {
       payload: {
         subject: payload.subject,
+        attestationType: payload.attestationType,
+        dataHash: payload.dataHash,
+        data: payload.data,
+        uri: payload.uri,
+        issuedAt: payload.issuedAt.toString(),
+        expiresAt: payload.expiresAt.toString(),
+        nonce: payload.nonce.toString(),
+      },
+      signature,
+    };
+  });
+
+  fastify.post<{
+    Body: {
+      subjectId: string;
+      attestationType: string;
+      dataHash: string;
+      data?: string;
+      uri?: string;
+      expiresAt?: string;
+    };
+  }>("/attestation/subject-sign", async (req, reply) => {
+    if (!ATTESTATION_KEY || !ATTESTATION_REGISTRY) {
+      return reply.status(503).send({ error: "Attestation signer not configured" });
+    }
+
+    const {
+      subjectId,
+      attestationType,
+      dataHash,
+      data = "0x0000000000000000000000000000000000000000000000000000000000000000",
+      uri = "",
+      expiresAt = "0",
+    } = req.body ?? {};
+    if (!subjectId || !attestationType || !dataHash) {
+      return reply.status(400).send({
+        error: "Missing body: { subjectId, attestationType, dataHash }",
+      });
+    }
+    if (!isValidBytes32(subjectId)) {
+      return reply.status(400).send({ error: "Invalid subjectId bytes32" });
+    }
+
+    const attestationTypeBytes: Hex =
+      attestationType.startsWith("0x") && attestationType.length === 66
+        ? (attestationType as Hex)
+        : (keccak256(new TextEncoder().encode(attestationType)) as Hex);
+
+    const dataHashBytes = dataHash.startsWith("0x") ? (dataHash as Hex) : (`0x${dataHash}` as Hex);
+    if (dataHashBytes.length !== 66) {
+      return reply.status(400).send({ error: "dataHash must be 32 bytes (0x + 64 hex)" });
+    }
+
+    let dataBytes: Hex;
+    if (typeof data === "string" && data.startsWith("0x") && data.length === 66) {
+      dataBytes = data as Hex;
+    } else if (data === "" || data === "0") {
+      dataBytes = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    } else {
+      const n = BigInt(data as string);
+      dataBytes = (`0x${n.toString(16).padStart(64, "0")}` as Hex);
+    }
+
+    const issuedAt = BigInt(Math.floor(Date.now() / 1000));
+    const expiresAtBig = BigInt(expiresAt);
+    if (expiresAtBig !== 0n && expiresAtBig <= issuedAt) {
+      return reply.status(400).send({ error: "expiresAt must be 0 or > issuedAt" });
+    }
+
+    let nonce: bigint;
+    try {
+      nonce = await getSubjectAttestationNonce(subjectId as Hex);
+    } catch {
+      return reply.status(500).send({ error: "Subject attestation nonce fetch failed" });
+    }
+
+    const payload = {
+      subjectId: subjectId as Hex,
+      attestationType: attestationTypeBytes as `0x${string}`,
+      dataHash: dataHashBytes as `0x${string}`,
+      data: dataBytes as `0x${string}`,
+      uri: uri || "",
+      issuedAt,
+      expiresAt: expiresAtBig,
+      nonce,
+    };
+
+    const domain = {
+      name: "OCX Attestation Registry",
+      version: "2",
+      chainId: CHAIN_ID,
+      verifyingContract: ATTESTATION_REGISTRY,
+    };
+
+    const types = {
+      SubjectAttestation: [
+        { name: "subjectId", type: "bytes32" },
+        { name: "attestationType", type: "bytes32" },
+        { name: "dataHash", type: "bytes32" },
+        { name: "data", type: "bytes32" },
+        { name: "uri", type: "string" },
+        { name: "issuedAt", type: "uint64" },
+        { name: "expiresAt", type: "uint64" },
+        { name: "nonce", type: "uint64" },
+      ],
+    } as const;
+
+    const account = privateKeyToAccount(ATTESTATION_KEY as Hex);
+    const wallet = createWalletClient({
+      account,
+      chain: { ...baseSepolia, id: CHAIN_ID },
+      transport,
+    });
+
+    let signature: Hash;
+    try {
+      signature = await wallet.signTypedData({
+        domain,
+        types,
+        primaryType: "SubjectAttestation",
+        message: payload,
+      });
+    } catch (e) {
+      fastify.log.error(e);
+      return reply.status(500).send({ error: "Subject attestation signing failed" });
+    }
+
+    return {
+      payload: {
+        subjectId: payload.subjectId,
         attestationType: payload.attestationType,
         dataHash: payload.dataHash,
         data: payload.data,
