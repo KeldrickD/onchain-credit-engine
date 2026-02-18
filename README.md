@@ -63,6 +63,17 @@ cd frontend && cp .env.example .env.local  # then edit .env.local with contract 
 pnpm frontend  # or: cd frontend && pnpm dev
 ```
 
+### Contract Test Runner (portable)
+
+```bash
+# Run all contract tests via helper (works with forge on PATH or ~/.foundry/bin/forge)
+cd contracts
+./script/test.sh
+
+# Run the end-to-end underwriting -> commit -> pricing proof test
+forge test --match-path test/E2E_RiskCommit.t.sol -vvv
+```
+
 ## Threat Model
 
 See [docs/threat-model.md](docs/threat-model.md) for:
