@@ -13,6 +13,8 @@ interface ISubjectRegistry {
     error SubjectRegistry_SubjectAlreadyExists();
 
     function createSubject(bytes32 subjectType, bytes32 salt) external returns (bytes32 subjectId);
+    /// @notice Create a subject with auto-incrementing salt (controllerNonce) for smooth deal creation
+    function createSubjectWithNonce(bytes32 subjectType) external returns (bytes32 subjectId);
     function setDelegate(bytes32 subjectId, address delegate, bool allowed) external;
     function isAuthorized(bytes32 subjectId, address caller) external view returns (bool);
     function controllerOf(bytes32 subjectId) external view returns (address);

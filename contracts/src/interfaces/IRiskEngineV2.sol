@@ -14,4 +14,6 @@ interface IRiskEngineV2 {
     }
 
     function evaluate(address subject) external view returns (RiskOutput memory);
+    /// @notice Evaluate risk for a deal/entity subject (attestations only; no loan behavior)
+    function evaluateSubject(bytes32 subjectId) external view returns (RiskOutput memory);
 }

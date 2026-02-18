@@ -72,6 +72,40 @@ export async function fetchRiskEvaluationAndSignature(
   return res.json();
 }
 
+export type RiskEvaluateSubjectAndSignResponse = {
+  payload: {
+    subjectKey: string;
+    score: string;
+    riskTier: string;
+    confidenceBps: string;
+    modelId: `0x${string}`;
+    reasonsHash: `0x${string}`;
+    evidenceHash: `0x${string}`;
+    timestamp: string;
+    nonce: string;
+  };
+  signature: `0x${string}`;
+  debug?: {
+    reasonCodes: `0x${string}`[];
+    evidence: `0x${string}`[];
+  };
+};
+
+export async function fetchRiskEvaluateSubjectAndSignature(
+  subjectId: string
+): Promise<RiskEvaluateSubjectAndSignResponse> {
+  const res = await fetch(`${oracleSignerUrl}/risk/evaluate-subject-and-sign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subjectId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Risk evaluate-subject-and-sign failed");
+  }
+  return res.json();
+}
+
 export async function fetchPriceSignature(
   asset: string,
   priceUSD8: string

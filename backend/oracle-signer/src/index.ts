@@ -74,12 +74,62 @@ const riskOracleAbi = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [{ name: "subjectKey", type: "bytes32" }],
+    name: "nextNonceKey",
+    outputs: [{ name: "", type: "uint64" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          { name: "subjectKey", type: "bytes32" },
+          { name: "score", type: "uint16" },
+          { name: "riskTier", type: "uint8" },
+          { name: "confidenceBps", type: "uint16" },
+          { name: "modelId", type: "bytes32" },
+          { name: "reasonsHash", type: "bytes32" },
+          { name: "evidenceHash", type: "bytes32" },
+          { name: "timestamp", type: "uint64" },
+          { name: "nonce", type: "uint64" },
+        ],
+        name: "payload",
+        type: "tuple",
+      },
+    ],
+    name: "getPayloadDigestV2ByKey",
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;
 
 const riskEngineV2Abi = [
   {
     inputs: [{ name: "subject", type: "address" }],
     name: "evaluate",
+    outputs: [
+      {
+        components: [
+          { name: "score", type: "uint16" },
+          { name: "tier", type: "uint8" },
+          { name: "confidenceBps", type: "uint16" },
+          { name: "modelId", type: "bytes32" },
+          { name: "reasonCodes", type: "bytes32[]" },
+          { name: "evidence", type: "bytes32[]" },
+        ],
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "subjectId", type: "bytes32" }],
+    name: "evaluateSubject",
     outputs: [
       {
         components: [
@@ -359,6 +409,145 @@ async function bootstrap() {
     return {
       payload: {
         user: payload.user,
+        score: payload.score.toString(),
+        riskTier: payload.riskTier.toString(),
+        confidenceBps: payload.confidenceBps.toString(),
+        modelId: payload.modelId,
+        reasonsHash: payload.reasonsHash,
+        evidenceHash: payload.evidenceHash,
+        timestamp: payload.timestamp.toString(),
+        nonce: payload.nonce.toString(),
+      },
+      signature,
+      debug: {
+        reasonCodes: evaluation.reasonCodes,
+        evidence: evaluation.evidence,
+      },
+    };
+  });
+
+  fastify.post<{
+    Body: { subjectId: string };
+  }>("/risk/evaluate-subject-and-sign", async (req, reply) => {
+    if (!RISK_KEY || !RISK_ORACLE || !RISK_ENGINE_V2) {
+      return reply.status(503).send({ error: "Risk v2 signer not configured" });
+    }
+
+    const { subjectId } = req.body ?? {};
+    if (!subjectId || !isValidBytes32(subjectId)) {
+      return reply.status(400).send({ error: "Missing or invalid body: { subjectId } (bytes32)" });
+    }
+
+    const liveChainId = await publicClient.getChainId();
+    if (liveChainId !== CHAIN_ID) {
+      return reply.status(500).send({
+        error: `Chain ID mismatch: configured=${CHAIN_ID}, live=${liveChainId}`,
+      });
+    }
+
+    let evaluation: {
+      score: number;
+      tier: number;
+      confidenceBps: number;
+      modelId: Hex;
+      reasonCodes: readonly Hex[];
+      evidence: readonly Hex[];
+    };
+    try {
+      evaluation = (await publicClient.readContract({
+        address: RISK_ENGINE_V2,
+        abi: riskEngineV2Abi,
+        functionName: "evaluateSubject",
+        args: [subjectId as Hex],
+      })) as typeof evaluation;
+    } catch {
+      return reply.status(500).send({ error: "RiskEngine evaluateSubject failed" });
+    }
+
+    const reasonsHash = keccak256(
+      encodeAbiParameters([{ type: "bytes32[]" }], [evaluation.reasonCodes as Hex[]])
+    );
+    const evidenceHash = keccak256(
+      encodeAbiParameters([{ type: "bytes32[]" }], [evaluation.evidence as Hex[]])
+    );
+
+    if (EXPECTED_RISK_MODEL_ID && EXPECTED_RISK_MODEL_ID !== evaluation.modelId) {
+      fastify.log.warn({
+        msg: "Risk model mismatch (subject)",
+        expected: EXPECTED_RISK_MODEL_ID,
+        got: evaluation.modelId,
+      });
+    }
+
+    let nonce: bigint;
+    try {
+      nonce = await publicClient.readContract({
+        address: RISK_ORACLE,
+        abi: riskOracleAbi,
+        functionName: "nextNonceKey",
+        args: [subjectId as Hex],
+      }) as bigint;
+    } catch {
+      return reply.status(500).send({ error: "Risk nonce key fetch failed" });
+    }
+
+    const timestamp = BigInt(Math.floor(Date.now() / 1000));
+    const payload = {
+      subjectKey: subjectId as Hex,
+      score: evaluation.score,
+      riskTier: evaluation.tier,
+      confidenceBps: evaluation.confidenceBps,
+      modelId: evaluation.modelId,
+      reasonsHash,
+      evidenceHash,
+      timestamp,
+      nonce,
+    };
+
+    const domain = {
+      name: "OCX Risk Oracle",
+      version: "1",
+      chainId: CHAIN_ID,
+      verifyingContract: RISK_ORACLE,
+    };
+
+    const types = {
+      RiskPayloadV2ByKey: [
+        { name: "subjectKey", type: "bytes32" },
+        { name: "score", type: "uint16" },
+        { name: "riskTier", type: "uint8" },
+        { name: "confidenceBps", type: "uint16" },
+        { name: "modelId", type: "bytes32" },
+        { name: "reasonsHash", type: "bytes32" },
+        { name: "evidenceHash", type: "bytes32" },
+        { name: "timestamp", type: "uint64" },
+        { name: "nonce", type: "uint64" },
+      ],
+    } as const;
+
+    const account = privateKeyToAccount(RISK_KEY as Hex);
+    const wallet = createWalletClient({
+      account,
+      chain: { ...baseSepolia, id: CHAIN_ID },
+      transport,
+    });
+
+    let signature: Hash;
+    try {
+      signature = await wallet.signTypedData({
+        domain,
+        types,
+        primaryType: "RiskPayloadV2ByKey",
+        message: payload,
+      });
+    } catch (e) {
+      fastify.log.error(e);
+      return reply.status(500).send({ error: "Risk v2 by-key signing failed" });
+    }
+
+    return {
+      payload: {
+        subjectKey: payload.subjectKey,
         score: payload.score.toString(),
         riskTier: payload.riskTier.toString(),
         confidenceBps: payload.confidenceBps.toString(),

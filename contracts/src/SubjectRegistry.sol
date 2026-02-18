@@ -26,6 +26,12 @@ contract SubjectRegistry is ISubjectRegistry {
     }
 
     /// @inheritdoc ISubjectRegistry
+    function createSubjectWithNonce(bytes32 subjectType) external override returns (bytes32 subjectId) {
+        bytes32 salt = bytes32(controllerNonce[msg.sender]);
+        return createSubject(subjectType, salt);
+    }
+
+    /// @inheritdoc ISubjectRegistry
     function setDelegate(bytes32 subjectId, address delegate, bool allowed) external override {
         address controller = _controllerBySubject[subjectId];
         if (controller == address(0)) revert SubjectRegistry_SubjectNotFound();

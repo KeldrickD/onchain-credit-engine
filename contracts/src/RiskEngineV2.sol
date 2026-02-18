@@ -27,8 +27,10 @@ contract RiskEngineV2 is IRiskEngineV2 {
     bytes32 public constant REASON_UTIL_MID = keccak256("UTIL_MID");
     bytes32 public constant REASON_UTIL_LOW = keccak256("UTIL_LOW");
     bytes32 public constant REASON_REPAY_STALE = keccak256("REPAY_STALE");
+    bytes32 public constant REASON_SUBJECT_MODE = keccak256("SUBJECT_MODE");
 
     uint256 private constant BASE_SCORE = 520;
+    uint256 private constant BASE_SCORE_SUBJECT = 480;
     uint256 private constant BPS_MAX = 10_000;
     uint256 private constant DSCR_STRONG_BPS = 13_000;
     uint256 private constant DSCR_MID_MIN_BPS = 11_500;
@@ -37,6 +39,7 @@ contract RiskEngineV2 is IRiskEngineV2 {
     uint256 private constant UTIL_LOW_BPS = 5000;
     uint256 private constant REPAY_STALE_SECS = 30 days;
     uint256 private constant CONFIDENCE_BASE = 1500;
+    uint256 private constant CONFIDENCE_SUBJECT_MISSING_DSCR = 50;
 
     IAttestationRegistry public immutable attestationRegistry;
     ILoanEngine public immutable loanEngine;
@@ -71,6 +74,115 @@ contract RiskEngineV2 is IRiskEngineV2 {
         out.score = uint16(_clamp(int256(BASE_SCORE) + delta, 0, 1000));
         out.tier = uint8(_scoreToTier(out.score));
         out.confidenceBps = uint16(_clamp(int256(_confidenceDeltas(subject, reasons)), 0, BPS_MAX));
+    }
+
+    function evaluateSubject(bytes32 subjectId) external view override returns (RiskOutput memory out) {
+        (bytes32[] memory reasons, bytes32[] memory evidence) = _collectReasonsAndEvidenceSubject(subjectId);
+        out.reasonCodes = reasons;
+        out.evidence = evidence;
+
+        int256 delta = 0;
+        for (uint256 i = 0; i < reasons.length; i++) {
+            bytes32 r = reasons[i];
+            if (r == REASON_SUBJECT_MODE) continue; // marker only
+            if (r == REASON_KYB_PASS) delta += 150;
+            else if (r == REASON_DSCR_STRONG) delta += 160;
+            else if (r == REASON_DSCR_MID) delta += 90;
+            else if (r == REASON_DSCR_WEAK) delta -= 120;
+            else if (r == REASON_NOI_PRESENT) delta += 80;
+            else if (r == REASON_SPONSOR_TRACK) delta += 100;
+        }
+
+        out.modelId = MODEL_ID;
+        out.score = uint16(_clamp(int256(BASE_SCORE_SUBJECT) + delta, 0, 1000));
+        out.tier = uint8(_scoreToTier(out.score));
+        out.confidenceBps = uint16(_clamp(int256(_confidenceDeltasSubject(subjectId, reasons)), 0, BPS_MAX));
+    }
+
+    function _collectReasonsAndEvidenceSubject(bytes32 subjectId)
+        internal
+        view
+        returns (bytes32[] memory reasons, bytes32[] memory evidence)
+    {
+        bytes32[] memory r = new bytes32[](8);
+        bytes32[] memory e = new bytes32[](8);
+        uint256 ri = 0;
+        uint256 ei = 0;
+
+        r[ri++] = REASON_SUBJECT_MODE;
+
+        (bool hasKyb, bytes32 idKyb) = _getValidLatestSubject(subjectId, KYB_PASS);
+        if (hasKyb) {
+            r[ri++] = REASON_KYB_PASS;
+            e[ei++] = idKyb;
+        }
+
+        (uint256 dscrBps, bytes32 idDscr) = _getDscrBpsSubject(subjectId);
+        if (dscrBps > 0) {
+            e[ei++] = idDscr;
+            if (dscrBps >= DSCR_STRONG_BPS) r[ri++] = REASON_DSCR_STRONG;
+            else if (dscrBps >= DSCR_MID_MIN_BPS) r[ri++] = REASON_DSCR_MID;
+            else r[ri++] = REASON_DSCR_WEAK;
+        }
+
+        (bool hasNoi, bytes32 idNoi, uint256 noiData) = _getValidLatestSubjectNoi(subjectId);
+        if (hasNoi && noiData != 0) {
+            r[ri++] = REASON_NOI_PRESENT;
+            e[ei++] = idNoi;
+        }
+
+        (bool hasSponsor, bytes32 idSponsor) = _getValidLatestSubject(subjectId, SPONSOR_TRACK);
+        if (hasSponsor) {
+            r[ri++] = REASON_SPONSOR_TRACK;
+            e[ei++] = idSponsor;
+        }
+
+        reasons = _trim(r, ri);
+        evidence = _trim(e, ei);
+    }
+
+    function _getValidLatestSubject(bytes32 subjectId, bytes32 aType) internal view returns (bool valid, bytes32 id) {
+        id = attestationRegistry.getLatestSubjectAttestationId(subjectId, aType);
+        if (id == bytes32(0)) return (false, bytes32(0));
+        valid = attestationRegistry.isValid(id);
+    }
+
+    function _getDscrBpsSubject(bytes32 subjectId) internal view returns (uint256 dscrBps, bytes32 attestationId) {
+        attestationId = attestationRegistry.getLatestSubjectAttestationId(subjectId, DSCR_BPS);
+        if (attestationId == bytes32(0)) return (0, bytes32(0));
+        if (!attestationRegistry.isValid(attestationId)) return (0, bytes32(0));
+        (IAttestationRegistry.StoredSubjectAttestation memory att,,) =
+            attestationRegistry.getSubjectAttestation(attestationId);
+        return (uint256(att.data), attestationId);
+    }
+
+    function _getValidLatestSubjectNoi(bytes32 subjectId)
+        internal
+        view
+        returns (bool valid, bytes32 id, uint256 data)
+    {
+        id = attestationRegistry.getLatestSubjectAttestationId(subjectId, NOI_USD6);
+        if (id == bytes32(0)) return (false, bytes32(0), 0);
+        valid = attestationRegistry.isValid(id);
+        if (!valid) return (false, id, 0);
+        (IAttestationRegistry.StoredSubjectAttestation memory att,,) =
+            attestationRegistry.getSubjectAttestation(id);
+        data = uint256(att.data);
+    }
+
+    function _confidenceDeltasSubject(bytes32 subjectId, bytes32[] memory reasons) internal view returns (uint256 conf) {
+        conf = CONFIDENCE_BASE;
+        bool hasDscr = false;
+        for (uint256 i = 0; i < reasons.length; i++) {
+            bytes32 r = reasons[i];
+            if (r == REASON_KYB_PASS) conf += 2000;
+            else if (r == REASON_DSCR_STRONG || r == REASON_DSCR_MID || r == REASON_DSCR_WEAK) {
+                conf += 2500;
+                hasDscr = true;
+            } else if (r == REASON_SPONSOR_TRACK) conf += 1000;
+            else if (r == REASON_NOI_PRESENT) conf += 1000;
+        }
+        if (!hasDscr) conf -= CONFIDENCE_SUBJECT_MISSING_DSCR;
     }
 
     function _collectReasonsAndEvidence(address subject)

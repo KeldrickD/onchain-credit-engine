@@ -31,6 +31,9 @@ contract RiskOracle is IRiskOracle {
     /// @notice Next nonce per user (sequential, prevents replay)
     mapping(address => uint256) public nextNonce;
 
+    /// @notice Next nonce per subject key (bytes32) for deal/entity commits
+    mapping(bytes32 => uint64) public nextNonceKey;
+
     /// @notice Tracks consumed nonces: keccak256(user, nonce) => true if used (legacy)
     mapping(bytes32 => bool) public usedNonces;
 
@@ -50,6 +53,15 @@ contract RiskOracle is IRiskOracle {
         bytes32 evidenceHash
     );
     event NonceConsumed(address indexed user, uint256 nonce);
+    event RiskPayloadV2ByKeyVerified(
+        bytes32 indexed subjectKey,
+        uint64 nonce,
+        uint16 score,
+        uint8 riskTier,
+        uint16 confidenceBps,
+        bytes32 modelId
+    );
+    event NonceKeyConsumed(bytes32 indexed subjectKey, uint64 nonce);
 
     // -------------------------------------------------------------------------
     // Errors
@@ -170,6 +182,44 @@ contract RiskOracle is IRiskOracle {
     /// @notice Checks if a nonce has been consumed for a user
     function isNonceUsed(address user, uint256 nonce) external view returns (bool) {
         return usedNonces[_nonceKey(user, nonce)];
+    }
+
+    /// @inheritdoc IRiskOracle
+    function verifyRiskPayloadV2ByKey(RiskPayloadV2ByKey calldata payload, bytes calldata signature)
+        external
+        override
+        returns (bool)
+    {
+        _validateAndConsumeV2ByKey(payload, signature);
+        emit RiskPayloadV2ByKeyVerified(
+            payload.subjectKey,
+            payload.nonce,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId
+        );
+        return true;
+    }
+
+    /// @inheritdoc IRiskOracle
+    function getPayloadDigestV2ByKey(RiskPayloadV2ByKey calldata payload) external view returns (bytes32) {
+        bytes32 structHash = SignatureVerifier.hashRiskPayloadV2ByKey(
+            payload.subjectKey,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
+            payload.timestamp,
+            payload.nonce
+        );
+        return
+            SignatureVerifier.toTypedDataHash(
+                SignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+                structHash
+            );
     }
 
     // -------------------------------------------------------------------------
@@ -293,7 +343,41 @@ contract RiskOracle is IRiskOracle {
         emit NonceConsumed(payload.user, payload.nonce);
     }
 
+    function _validateAndConsumeV2ByKey(RiskPayloadV2ByKey calldata payload, bytes calldata signature) internal {
+        if (block.timestamp > payload.timestamp + PAYLOAD_VALIDITY_WINDOW) {
+            revert RiskOracle_ExpiredTimestamp();
+        }
+        if (payload.nonce != nextNonceKey[payload.subjectKey]) revert RiskOracle_ReplayAttack();
+        nextNonceKey[payload.subjectKey]++;
+
+        bytes32 structHash = SignatureVerifier.hashRiskPayloadV2ByKey(
+            payload.subjectKey,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
+            payload.timestamp,
+            payload.nonce
+        );
+        bytes32 digest = SignatureVerifier.toTypedDataHash(
+            SignatureVerifier.domainSeparator(DOMAIN_NAME, DOMAIN_VERSION, address(this)),
+            structHash
+        );
+        if (SignatureVerifier.recover(digest, signature) != oracleSigner) {
+            revert RiskOracle_InvalidSignature();
+        }
+
+        usedNonces[_nonceKeyKey(payload.subjectKey, payload.nonce)] = true;
+        emit NonceKeyConsumed(payload.subjectKey, payload.nonce);
+    }
+
     function _nonceKey(address user, uint256 nonce) internal pure returns (bytes32) {
         return keccak256(abi.encode(user, nonce));
+    }
+
+    function _nonceKeyKey(bytes32 subjectKey, uint64 nonce) internal pure returns (bytes32) {
+        return keccak256(abi.encode(subjectKey, nonce));
     }
 }

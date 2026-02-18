@@ -47,4 +47,51 @@ export const creditRegistryAbi = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [{ internalType: "bytes32", name: "key", type: "bytes32" }],
+    name: "getProfile",
+    outputs: [
+      {
+        components: [
+          { internalType: "uint256", name: "score", type: "uint256" },
+          { internalType: "uint256", name: "riskTier", type: "uint256" },
+          { internalType: "uint256", name: "lastUpdated", type: "uint256" },
+          { internalType: "bytes32", name: "modelId", type: "bytes32" },
+          { internalType: "uint16", name: "confidenceBps", type: "uint16" },
+          { internalType: "bytes32", name: "reasonsHash", type: "bytes32" },
+          { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+        ],
+        internalType: "struct ICreditRegistry.CreditProfile",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          { internalType: "bytes32", name: "subjectKey", type: "bytes32" },
+          { internalType: "uint16", name: "score", type: "uint16" },
+          { internalType: "uint8", name: "riskTier", type: "uint8" },
+          { internalType: "uint16", name: "confidenceBps", type: "uint16" },
+          { internalType: "bytes32", name: "modelId", type: "bytes32" },
+          { internalType: "bytes32", name: "reasonsHash", type: "bytes32" },
+          { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+          { internalType: "uint64", name: "timestamp", type: "uint64" },
+          { internalType: "uint64", name: "nonce", type: "uint64" },
+        ],
+        internalType: "struct IRiskOracle.RiskPayloadV2ByKey",
+        name: "payload",
+        type: "tuple",
+      },
+      { internalType: "bytes", name: "signature", type: "bytes" },
+    ],
+    name: "updateCreditProfileV2ByKey",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const;

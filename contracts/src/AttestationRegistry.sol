@@ -14,6 +14,9 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
 
     bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
 
+    enum AttestationKind { NONE, WALLET, SUBJECT }
+    mapping(bytes32 => AttestationKind) public kindOf;
+
     struct StoredAttestationInternal {
         address subject;
         bytes32 attestationType;
@@ -95,6 +98,7 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         _latestBySubjectAndType[a.subject][a.attestationType] = attestationId;
         nextNonce[a.subject] = a.nonce + 1;
         _issuerByAttestationId[attestationId] = issuer;
+        kindOf[attestationId] = AttestationKind.WALLET;
 
         emit Attested(
             attestationId,
@@ -160,6 +164,7 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         _latestBySubjectIdAndType[a.subjectId][a.attestationType] = attestationId;
         nextSubjectNonce[a.subjectId] = a.nonce + 1;
         _issuerByAttestationId[attestationId] = issuer;
+        kindOf[attestationId] = AttestationKind.SUBJECT;
 
         emit SubjectAttested(
             attestationId,
@@ -307,13 +312,15 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
     }
 
     function isValid(bytes32 attestationId) external view override returns (bool) {
-        if (_issuerByAttestationId[attestationId] == address(0)) return false;
+        if (kindOf[attestationId] == AttestationKind.NONE) return false;
         if (_revoked[attestationId]) return false;
-        StoredAttestationInternal storage a = _attestations[attestationId];
-        if (a.issuer != address(0)) {
+        if (kindOf[attestationId] == AttestationKind.WALLET) {
+            StoredAttestationInternal storage a = _attestations[attestationId];
+            if (a.issuer == address(0)) return false;
             if (a.expiresAt != 0 && block.timestamp >= a.expiresAt) return false;
             return true;
         }
+        // SUBJECT
         StoredSubjectAttestationInternal storage s = _subjectAttestations[attestationId];
         if (s.issuer == address(0)) return false;
         if (s.expiresAt != 0 && block.timestamp >= s.expiresAt) return false;

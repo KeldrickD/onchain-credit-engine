@@ -32,4 +32,13 @@ interface ICreditRegistry {
     /// @notice Returns the credit profile for a user
     /// @param user Address to query
     function getCreditProfile(address user) external view returns (CreditProfile memory);
+
+    /// @notice Returns the credit profile by key (wallet key = bytes32(uint256(uint160(user))), subject key = subjectId)
+    function getProfile(bytes32 key) external view returns (CreditProfile memory);
+
+    /// @notice Updates a profile by subject key (deal/entity); oracle verifies and consumes nonce for key
+    function updateCreditProfileV2ByKey(
+        IRiskOracle.RiskPayloadV2ByKey calldata payload,
+        bytes calldata signature
+    ) external;
 }

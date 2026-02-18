@@ -22,6 +22,7 @@ contract CreditRegistry is ICreditRegistry {
     IRiskOracle public immutable riskOracle;
 
     mapping(address => CreditProfile) private profiles;
+    mapping(bytes32 => CreditProfile) private keyedProfiles;
 
     // -------------------------------------------------------------------------
     // Events
@@ -36,6 +37,17 @@ contract CreditRegistry is ICreditRegistry {
     );
     event CreditProfileUpdatedV2(
         address indexed user,
+        uint16 score,
+        uint8 riskTier,
+        uint16 confidenceBps,
+        bytes32 modelId,
+        bytes32 reasonsHash,
+        bytes32 evidenceHash,
+        uint64 timestamp,
+        uint64 nonce
+    );
+    event CreditProfileByKeyUpdatedV2(
+        bytes32 indexed subjectKey,
         uint16 score,
         uint8 riskTier,
         uint16 confidenceBps,
@@ -134,5 +146,44 @@ contract CreditRegistry is ICreditRegistry {
     /// @inheritdoc ICreditRegistry
     function getCreditProfile(address user) external view override returns (CreditProfile memory) {
         return profiles[user];
+    }
+
+    /// @inheritdoc ICreditRegistry
+    function getProfile(bytes32 key) external view override returns (CreditProfile memory) {
+        return keyedProfiles[key];
+    }
+
+    /// @inheritdoc ICreditRegistry
+    function updateCreditProfileV2ByKey(
+        IRiskOracle.RiskPayloadV2ByKey calldata payload,
+        bytes calldata signature
+    ) external override {
+        if (payload.score > MAX_SCORE) revert CreditRegistry_ScoreOutOfRange();
+        if (payload.riskTier > 3) revert CreditRegistry_InvalidTier();
+        if (payload.confidenceBps > 10_000) revert CreditRegistry_InvalidConfidence();
+
+        riskOracle.verifyRiskPayloadV2ByKey(payload, signature);
+
+        keyedProfiles[payload.subjectKey] = CreditProfile({
+            score: payload.score,
+            riskTier: payload.riskTier,
+            lastUpdated: block.timestamp,
+            modelId: payload.modelId,
+            confidenceBps: payload.confidenceBps,
+            reasonsHash: payload.reasonsHash,
+            evidenceHash: payload.evidenceHash
+        });
+
+        emit CreditProfileByKeyUpdatedV2(
+            payload.subjectKey,
+            payload.score,
+            payload.riskTier,
+            payload.confidenceBps,
+            payload.modelId,
+            payload.reasonsHash,
+            payload.evidenceHash,
+            payload.timestamp,
+            payload.nonce
+        );
     }
 }

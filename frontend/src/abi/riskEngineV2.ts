@@ -1,5 +1,26 @@
 export const riskEngineV2Abi = [
   {
+    inputs: [{ internalType: "bytes32", name: "subjectId", type: "bytes32" }],
+    name: "evaluateSubject",
+    outputs: [
+      {
+        components: [
+          { internalType: "uint16", name: "score", type: "uint16" },
+          { internalType: "uint8", name: "tier", type: "uint8" },
+          { internalType: "uint16", name: "confidenceBps", type: "uint16" },
+          { internalType: "bytes32", name: "modelId", type: "bytes32" },
+          { internalType: "bytes32[]", name: "reasonCodes", type: "bytes32[]" },
+          { internalType: "bytes32[]", name: "evidence", type: "bytes32[]" },
+        ],
+        internalType: "struct IRiskEngineV2.RiskOutput",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [{ internalType: "address", name: "subject", type: "address" }],
     name: "evaluate",
     outputs: [
@@ -85,6 +106,7 @@ const REASON_MAP: [string, string][] = [
   ["UTIL_MID", "Mid utilization (70–85%)"],
   ["UTIL_LOW", "Low utilization (<50%)"],
   ["REPAY_STALE", "Repay stale (>30 days)"],
+  ["SUBJECT_MODE", "Subject (deal/entity) mode"],
 ];
 
 export function reasonCodeToLabel(code: string): string {
