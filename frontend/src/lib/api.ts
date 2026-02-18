@@ -1,4 +1,5 @@
 import { oracleSignerUrl } from "./contracts";
+import type { CapitalStackSuggestRequest, CapitalStackSuggestResponse } from "./capital-stack";
 
 export type RiskSignResponse = {
   payload: {
@@ -221,4 +222,19 @@ export async function checkOracleSignerHealth(): Promise<{
   if (!res.ok) return { ok: false };
   const data = await res.json();
   return { ok: data.ok, configured: data.configured };
+}
+
+export async function postCapitalStackSuggest(
+  body: CapitalStackSuggestRequest
+): Promise<CapitalStackSuggestResponse> {
+  const res = await fetch(`${oracleSignerUrl}/capital-stack/suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error ?? "Capital stack suggest failed");
+  }
+  return res.json();
 }

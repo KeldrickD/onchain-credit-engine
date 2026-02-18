@@ -1020,6 +1020,9 @@ async function bootstrap() {
     };
   });
 
+  const { capitalStackPlugin } = await import("../capital-stack/src/index.ts");
+  await fastify.register(capitalStackPlugin);
+
   fastify.setErrorHandler((err: any, req, reply) => {
     if (err.message === "Rate limit exceeded") {
       return reply.status(429).send({ error: "Rate limit exceeded" });

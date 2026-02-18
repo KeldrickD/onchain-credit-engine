@@ -39,6 +39,12 @@ export default function Home() {
         >
           Admin
         </Link>
+        <Link
+          href="/deals"
+          className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-700"
+        >
+          Deals
+        </Link>
       </nav>
 
       <Dashboard />

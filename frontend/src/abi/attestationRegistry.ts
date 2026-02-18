@@ -96,4 +96,67 @@ export const attestationRegistryAbi = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "subjectId", type: "bytes32" },
+      { internalType: "bytes32", name: "attestationType", type: "bytes32" },
+    ],
+    name: "getLatestSubject",
+    outputs: [
+      {
+        components: [
+          { internalType: "bytes32", name: "subjectId", type: "bytes32" },
+          { internalType: "bytes32", name: "attestationType", type: "bytes32" },
+          { internalType: "bytes32", name: "dataHash", type: "bytes32" },
+          { internalType: "bytes32", name: "data", type: "bytes32" },
+          { internalType: "string", name: "uri", type: "string" },
+          { internalType: "uint64", name: "issuedAt", type: "uint64" },
+          { internalType: "uint64", name: "expiresAt", type: "uint64" },
+          { internalType: "address", name: "issuer", type: "address" },
+        ],
+        internalType: "struct IAttestationRegistry.StoredSubjectAttestation",
+        name: "att",
+        type: "tuple",
+      },
+      { internalType: "bool", name: "revoked", type: "bool" },
+      { internalType: "bool", name: "expired", type: "bool" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "subjectId", type: "bytes32" },
+      { internalType: "bytes32", name: "attestationType", type: "bytes32" },
+    ],
+    name: "getLatestSubjectAttestationId",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "attestationId", type: "bytes32" }],
+    name: "getSubjectAttestation",
+    outputs: [
+      {
+        components: [
+          { internalType: "bytes32", name: "subjectId", type: "bytes32" },
+          { internalType: "bytes32", name: "attestationType", type: "bytes32" },
+          { internalType: "bytes32", name: "dataHash", type: "bytes32" },
+          { internalType: "bytes32", name: "data", type: "bytes32" },
+          { internalType: "string", name: "uri", type: "string" },
+          { internalType: "uint64", name: "issuedAt", type: "uint64" },
+          { internalType: "uint64", name: "expiresAt", type: "uint64" },
+          { internalType: "address", name: "issuer", type: "address" },
+        ],
+        internalType: "struct IAttestationRegistry.StoredSubjectAttestation",
+        name: "att",
+        type: "tuple",
+      },
+      { internalType: "bool", name: "revoked", type: "bool" },
+      { internalType: "bool", name: "expired", type: "bool" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;

@@ -13,6 +13,8 @@ export const contractAddresses = {
   signedPriceOracle: (process.env.NEXT_PUBLIC_SIGNED_PRICE_ORACLE_ADDRESS || ZERO) as `0x${string}`,
   attestationRegistry: (process.env.NEXT_PUBLIC_ATTESTATION_REGISTRY_ADDRESS || ZERO) as `0x${string}`,
   riskEngineV2: (process.env.NEXT_PUBLIC_RISK_ENGINE_V2_ADDRESS || ZERO) as `0x${string}`,
+  dealFactory: (process.env.NEXT_PUBLIC_DEAL_FACTORY_ADDRESS || ZERO) as `0x${string}`,
+  subjectRegistry: (process.env.NEXT_PUBLIC_SUBJECT_REGISTRY_ADDRESS || ZERO) as `0x${string}`,
   usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS || ZERO) as `0x${string}`,
   weth: (process.env.NEXT_PUBLIC_WETH_ADDRESS || ZERO) as `0x${string}`,
   wbtc: (process.env.NEXT_PUBLIC_WBTC_ADDRESS || ZERO) as `0x${string}`,

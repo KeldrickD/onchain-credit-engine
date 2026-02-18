@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OCX Underwriting Packet",
+  "description": "Protocol-first export for lenders, LPs, and compliance. Chain-agnostic; includes committed profile + live eval.",
+  "type": "object",
+  "required": ["schema", "generatedAt", "chain", "deal", "contractAddresses", "notes"],
+  "properties": {
+    "schema": { "const": "ocx-underwriting-packet/v0" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "chain": {
+      "type": "object",
+      "required": ["chainId", "name"],
+      "properties": {
+        "chainId": { "type": "integer" },
+        "name": { "type": "string" }
+      }
+    },
+    "deal": {
+      "type": "object",
+      "required": ["dealId", "dealType", "sponsor", "metadataURI", "collateralAsset", "requestedUSDC6"],
+      "properties": {
+        "dealId": { "type": "string" },
+        "dealType": { "type": "string" },
+        "sponsor": { "type": "string" },
+        "metadataURI": { "type": "string" },
+        "collateralAsset": { "type": "string" },
+        "requestedUSDC6": { "type": "string" }
+      }
+    },
+    "creditProfileCommitted": {
+      "type": ["object", "null"],
+      "properties": {
+        "subjectKey": { "type": "string" },
+        "score": { "type": "number" },
+        "tier": { "type": "number" },
+        "confidenceBps": { "type": "number" },
+        "modelId": { "type": "string" },
+        "reasonsHash": { "type": "string" },
+        "evidenceHash": { "type": "string" },
+        "lastUpdated": { "type": "number" }
+      }
+    },
+    "riskEngineLive": {
+      "type": ["object", "null"],
+      "properties": {
+        "score": { "type": "number" },
+        "tier": { "type": "number" },
+        "confidenceBps": { "type": "number" },
+        "modelId": { "type": "string" },
+        "reasonCodes": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "attestationsLatest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "attestationType": { "type": "string" },
+          "attestationId": { "type": "string" },
+          "data": { "type": "string" },
+          "uri": { "type": "string" },
+          "issuer": { "type": "string" },
+          "issuedAt": { "type": "number" },
+          "expiresAt": { "type": "number" },
+          "valid": { "type": "boolean" },
+          "revoked": { "type": "boolean" }
+        }
+      }
+    },
+    "contractAddresses": {
+      "type": "object",
+      "required": ["dealFactory", "subjectRegistry", "attestationRegistry", "riskEngineV2", "creditRegistry"],
+      "properties": {
+        "dealFactory": { "type": "string" },
+        "subjectRegistry": { "type": "string" },
+        "attestationRegistry": { "type": "string" },
+        "riskEngineV2": { "type": "string" },
+        "creditRegistry": { "type": "string" }
+      }
+    },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  }
+}
