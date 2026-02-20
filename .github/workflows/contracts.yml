@@ -36,7 +36,7 @@ jobs:
           key: ${{ runner.os }}-foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**', 'contracts/**.sol') }}
 
       - name: Install dependencies
-        run: forge install --no-commit
+        run: forge install
 
       - name: Run Contracts Test Suite (CI profile, deterministic)
         env:
