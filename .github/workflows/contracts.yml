@@ -23,9 +23,38 @@ jobs:
 
       - name: Setup Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
 
-      - name: Show Foundry version
-        run: forge --version
+      - name: Cache Foundry/build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.foundry
+            contracts/cache
+            contracts/out
+          key: ${{ runner.os }}-foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**', 'contracts/**.sol') }}
 
-      - name: Run Forge tests
-        run: forge test -vvv
+      - name: Install dependencies
+        run: forge install --no-commit
+
+      - name: Run Contracts Test Suite (CI profile, deterministic)
+        env:
+          FOUNDRY_PROFILE: ci
+        run: |
+          forge --version
+          forge test --fuzz-seed 42
+
+      - name: Gas report (CI profile)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          FOUNDRY_PROFILE: ci
+        run: |
+          forge test --fuzz-seed 42 --gas-report 2>&1 | tee gas-report.txt
+
+      - name: Upload gas report
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-report
+          path: contracts/gas-report.txt

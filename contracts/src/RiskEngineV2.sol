@@ -10,6 +10,9 @@ import {IIssuerRegistry} from "./interfaces/IIssuerRegistry.sol";
 /// @notice Deterministic, evidence-backed scoring: attestations + protocol behavior
 /// @dev Purely read-only; no ML onchain; explainable via reason codes
 contract RiskEngineV2 is IRiskEngineV2 {
+    // OCX spec anchor. Bump only when executable spec behavior changes intentionally.
+    bytes32 public constant SPEC_VERSION = keccak256("OCX_SPEC_V0_1_0");
+    bytes32 public constant GOLDEN_VECTORS_ID = keccak256("RISKENGINEV2_GOLDENVECTORS_V0_1_0");
     bytes32 public constant MODEL_ID = keccak256("RISK_V2_2026_02_15");
 
     bytes32 public constant KYB_PASS = keccak256("KYB_PASS");

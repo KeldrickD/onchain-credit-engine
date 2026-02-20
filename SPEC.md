@@ -4,6 +4,20 @@ Canonical definitions for integrators: subject keys, attestations, risk payloads
 
 ---
 
+## Spec version anchors
+
+- Spec: **OCX-SPEC v0.1.0**
+- Contract anchor: `RiskEngineV2.SPEC_VERSION = keccak256("OCX_SPEC_V0_1_0")`
+- Golden vectors anchor: `RiskEngineV2.GOLDEN_VECTORS_ID = keccak256("RISKENGINEV2_GOLDENVECTORS_V0_1_0")`
+- Golden vectors: `test/RiskEngineV2_GoldenVectors.t.sol` (must remain green under CI profile + seed 42)
+- Golden vectors anchor commit: `<FILL_WITH_COMMIT_SHA_WHEN_CHANGED>`
+- Invariant suite: `test/invariants/Invariant_*.t.sol` (must remain green under CI profile + seed 42)
+
+**Policy:** Bump v0.1.0 -> v0.1.1 (and update `SPEC_VERSION`) only when protocol behavior changes intentionally and
+golden vectors/invariants are updated accordingly.
+
+---
+
 ## 1. Subject key (subjectId / subjectKey)
 
 - **Type:** `bytes32`

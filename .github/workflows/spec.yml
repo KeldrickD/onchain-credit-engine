@@ -27,17 +27,17 @@ jobs:
         with:
           version: nightly
 
-      - name: Cache Foundry (optional)
+      - name: Cache Foundry/build artifacts
         uses: actions/cache@v4
         with:
           path: |
             ~/.foundry
             contracts/cache
             contracts/out
-          key: ${{ runner.os }}-foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/**.sol') }}
+          key: ${{ runner.os }}-foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**', 'contracts/**.sol') }}
 
       - name: Install dependencies
-        run: forge install
+        run: forge install --no-commit
 
       - name: Run Golden Vector Spec Tests (CI profile)
         env:
@@ -51,3 +51,9 @@ jobs:
           FOUNDRY_PROFILE: ci
         run: |
           forge test --match-path "test/HashConsistency.t.sol" --fuzz-seed 42 -vv
+
+      - name: Run Invariant Suite (CI profile)
+        env:
+          FOUNDRY_PROFILE: ci
+        run: |
+          forge test --match-path "test/invariants/Invariant_*.t.sol" --fuzz-seed 42 -vv
