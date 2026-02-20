@@ -1,7 +1,29 @@
 # OCX — Onchain Credit Engine
 
+[![Spec Compliance](https://github.com/KeldrickD/onchain-credit-engine/actions/workflows/spec.yml/badge.svg)](https://github.com/KeldrickD/onchain-credit-engine/actions/workflows/spec.yml)
+
 **A composable, attestable credit state machine for onchain identities.**  
 Deterministic evaluation, signed commits, and reusable subject keys. No governance, no tokens—just the protocol.
+
+## Spec-gated protocol
+
+OCX is **spec-gated**: golden vectors + invariants are enforced in CI. Protocol behavior cannot drift silently.
+
+### Quick commands (`contracts/`)
+
+Spec gate (fast):
+
+```bash
+FOUNDRY_PROFILE=ci forge test --match-path "test/RiskEngineV2_GoldenVectors.t.sol" --fuzz-seed 42
+FOUNDRY_PROFILE=ci forge test --match-path "test/HashConsistency.t.sol" --fuzz-seed 42
+FOUNDRY_PROFILE=ci forge test --match-path "test/invariants/Invariant_*.t.sol" --fuzz-seed 42
+```
+
+Full suite:
+
+```bash
+FOUNDRY_PROFILE=ci forge test --fuzz-seed 42
+```
 
 ## Protocol-first
 
