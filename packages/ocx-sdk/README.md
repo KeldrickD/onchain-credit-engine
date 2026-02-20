@@ -15,34 +15,60 @@ pnpm add ocx-sdk viem
 pnpm add ./packages/ocx-sdk viem
 ```
 
-## Use
+## Quick Integration (15 lines)
+
+Read profile data directly from `CreditRegistry`.
+Compare score/tier/confidence with your thresholds.
+Gate the user flow with `PASS`/`BLOCK`.
+
+### Subject-key lane (recommended for protocol integrations)
 
 ```ts
-import { buildRiskPayloadV2ByKey, hashReasons, hashEvidence } from "ocx-sdk";
-import { riskPayloadV2ByKeyTypedData, riskOracleDomain } from "ocx-sdk";
+import { createPublicClient, http } from "viem"
+import { mainnet } from "viem/chains"
+import { creditRegistryAbi } from "./dist" // or correct export
 
-const payload = buildRiskPayloadV2ByKey({
-  subjectKey: "0x...",
-  score: 720,
-  riskTier: 2,
-  confidenceBps: 7500,
-  modelId: "0x...",
-  reasonCodes: ["0x..."],
-  evidence: ["0x..."],
-  timestamp: BigInt(Math.floor(Date.now() / 1000)),
-  nonce: 1n,
-});
+const CREDIT_REGISTRY = "0x..." as `0x${string}`
+const subjectKey = "0x..." as `0x${string}`
 
-const typedData = riskPayloadV2ByKeyTypedData(
-  riskOracleDomain(chainId, riskOracleAddress),
-  payload
-);
-// await walletClient.signTypedData(typedData);
+const client = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+
+const profile = await client.readContract({
+  address: CREDIT_REGISTRY,
+  abi: creditRegistryAbi,
+  functionName: "getProfile",
+  args: [subjectKey]
+})
+
+const PASS =
+  profile.score >= 650 &&
+  profile.riskTier <= 2 &&
+  profile.confidenceBps >= 6000
+
+console.log(PASS ? "PASS" : "BLOCK")
 ```
 
-## Example
+### Wallet lane (EOA-based integrations)
 
-See [examples/integrate-lending-gate.ts](./examples/integrate-lending-gate.ts) for a minimal “gate lending by CreditRegistry.getProfile(subjectKey)” flow.
+```ts
+const wallet = "0x..." as `0x${string}`
+
+const profile = await client.readContract({
+  address: CREDIT_REGISTRY,
+  abi: creditRegistryAbi,
+  functionName: "getCreditProfile",
+  args: [wallet]
+})
+
+const PASS =
+  profile.score >= 650 &&
+  profile.riskTier <= 2
+
+console.log(PASS ? "PASS" : "BLOCK")
+```
 
 ## Protocol
 
