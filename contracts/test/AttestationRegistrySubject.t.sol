@@ -26,8 +26,9 @@ contract AttestationRegistrySubjectTest is Test {
         vm.warp(1000);
 
         registry = new AttestationRegistry(admin);
+        bytes32 issuerRole = registry.ISSUER_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.ISSUER_ROLE(), issuer);
+        registry.grantRole(issuerRole, issuer);
     }
 
     function _makeSubjectAttestation(
@@ -93,17 +94,19 @@ contract AttestationRegistrySubjectTest is Test {
     function test_SubmitSubjectAttestation_InvalidNonce_Reverts() public {
         IAttestationRegistry.SubjectAttestation memory a =
             _makeSubjectAttestation(subjectId, NOI_TYPE, keccak256("x"), bytes32(0), "", 0, 0, 5);
+        bytes memory sig = _signSubjectAttestation(a, ISSUER_KEY);
 
         vm.expectRevert(IAttestationRegistry.AttestationRegistry_InvalidNonce.selector);
-        registry.submitSubjectAttestation(a, _signSubjectAttestation(a, ISSUER_KEY));
+        registry.submitSubjectAttestation(a, sig);
     }
 
     function test_SubmitSubjectAttestation_IssuerNotAllowed_Reverts() public {
         IAttestationRegistry.SubjectAttestation memory a =
             _makeSubjectAttestation(subjectId, NOI_TYPE, keccak256("x"), bytes32(0), "", 0, 0, 0);
+        bytes memory sig = _signSubjectAttestation(a, OTHER_KEY);
 
         vm.expectRevert(IAttestationRegistry.AttestationRegistry_IssuerNotAllowed.selector);
-        registry.submitSubjectAttestation(a, _signSubjectAttestation(a, OTHER_KEY));
+        registry.submitSubjectAttestation(a, sig);
     }
 
     function test_SubmitSubjectAttestation_ExpiryAndRevocation() public {

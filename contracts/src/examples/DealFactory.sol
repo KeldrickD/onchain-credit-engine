@@ -23,6 +23,7 @@ contract DealFactory is IDealFactory {
         uint256 requestedUSDC6
     ) external override returns (bytes32 dealId) {
         dealId = subjectRegistry.createSubjectWithNonce(dealType);
+        subjectRegistry.setDelegate(dealId, msg.sender, true);
 
         _deals[dealId] = Deal({
             dealId: dealId,
@@ -65,6 +66,15 @@ contract DealFactory is IDealFactory {
 
         d.active = false;
         emit DealDeactivated(dealId, msg.sender);
+    }
+
+    /// @inheritdoc IDealFactory
+    function setDealDelegate(bytes32 dealId, address delegate, bool allowed) external override {
+        Deal storage d = _deals[dealId];
+        if (d.sponsor == address(0)) revert DealFactory_DealNotFound();
+        if (!subjectRegistry.isAuthorized(dealId, msg.sender)) revert DealFactory_NotAuthorized();
+        subjectRegistry.setDelegate(dealId, delegate, allowed);
+        emit DealDelegateSet(dealId, delegate, allowed, msg.sender);
     }
 
     /// @inheritdoc IDealFactory

@@ -109,4 +109,16 @@ All hashes are over ABI-encoded data; no packed encoding for arrays (use `abi.en
 - `evaluateSubject(bytes32 subjectId)` — subject: reads subject attestations, same return shape.
 - Deterministic: same inputs and registry state ⇒ same output. No signing; commit to CreditRegistry is a separate step (oracle sign + verify + update).
 
+### 8.1 Trust weighting invariants (IssuerRegistry-aware mode)
+
+- **Legacy mode:** if `RiskEngineV2.issuerRegistry == address(0)`, outputs are identical to pre-IssuerRegistry behavior.
+- **Weighted mode:** when issuer registry is configured:
+  - **Score delta gating:** per attestation factor, score delta is:
+    - full, if trusted (`isTrustedForType == true`)
+    - half, if untrusted and `trustScoreBps >= 4000`
+    - zero, if untrusted and `trustScoreBps < 4000`
+  - **Confidence scaling:** confidence deltas are multiplied by `trustScoreBps / 10000` (independent of trusted/untrusted status).
+  - **Evidence inclusion:** valid attestation IDs are included in `evidence` regardless of trust status.
+  - **Reason transparency:** untrusted factors emit `REASON_UNTRUSTED_*` codes.
+
 This spec is the single source of truth for payload formats, hashes, and nonce behavior when building oracles, SDKs, and integrations.

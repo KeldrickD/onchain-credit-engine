@@ -81,9 +81,9 @@ contract RiskEngineV2 is IRiskEngineV2 {
         out.evidence = evidence;
 
         out.modelId = MODEL_ID;
-        out.score = uint16(_clamp(int256(BASE_SCORE) + scoreDelta, 0, 1000));
+        out.score = uint16(uint256(_clamp(int256(BASE_SCORE) + scoreDelta, 0, 1000)));
         out.tier = uint8(_scoreToTier(out.score));
-        out.confidenceBps = uint16(_clamp(int256(conf), 0, BPS_MAX));
+        out.confidenceBps = uint16(uint256(_clamp(int256(conf), 0, int256(BPS_MAX))));
     }
 
     function evaluateSubject(bytes32 subjectId) external view override returns (RiskOutput memory out) {
@@ -93,9 +93,9 @@ contract RiskEngineV2 is IRiskEngineV2 {
         out.evidence = evidence;
 
         out.modelId = MODEL_ID;
-        out.score = uint16(_clamp(int256(BASE_SCORE_SUBJECT) + scoreDelta, 0, 1000));
+        out.score = uint16(uint256(_clamp(int256(BASE_SCORE_SUBJECT) + scoreDelta, 0, 1000)));
         out.tier = uint8(_scoreToTier(out.score));
-        out.confidenceBps = uint16(_clamp(int256(conf), 0, BPS_MAX));
+        out.confidenceBps = uint16(uint256(_clamp(int256(conf), 0, int256(BPS_MAX))));
     }
 
     function _collectReasonsAndEvidenceSubject(bytes32 subjectId)

@@ -242,7 +242,7 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
     }
 
     function getAttestation(bytes32 attestationId)
-        external
+        public
         view
         override
         returns (StoredAttestation memory att, bool revoked, bool expired)

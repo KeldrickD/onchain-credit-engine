@@ -12,7 +12,7 @@ contract SubjectRegistry is ISubjectRegistry {
     mapping(address => uint256) public controllerNonce;
 
     /// @inheritdoc ISubjectRegistry
-    function createSubject(bytes32 subjectType, bytes32 salt) external override returns (bytes32 subjectId) {
+    function createSubject(bytes32 subjectType, bytes32 salt) public override returns (bytes32 subjectId) {
         subjectId = keccak256(abi.encode(subjectType, msg.sender, salt));
         if (_controllerBySubject[subjectId] != address(0)) {
             revert SubjectRegistry_SubjectAlreadyExists();

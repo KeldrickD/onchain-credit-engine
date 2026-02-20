@@ -32,8 +32,9 @@ contract RiskEngineV2Test is Test {
         collateralAsset = makeAddr("collateral");
 
         registry = new AttestationRegistry(admin);
+        bytes32 issuerRole = registry.ISSUER_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.ISSUER_ROLE(), issuer);
+        registry.grantRole(issuerRole, issuer);
 
         mockLoan = new MockLoanEngineForRisk();
         engine = new RiskEngineV2(address(registry), address(mockLoan));
@@ -90,6 +91,7 @@ contract RiskEngineV2Test is Test {
     function test_UtilizationHigh_ScorePenalty() public {
         mockLoan.setPosition(subject, collateralAsset, 100e18, 85e6, 8500, 700);
         mockLoan.setMaxBorrow(subject, collateralAsset, 100e6);
+        mockLoan.setLastRepayAt(subject, uint64(block.timestamp));
         // util = 85/100 = 85% -> UTIL_HIGH
         IRiskEngineV2.RiskOutput memory out = engine.evaluate(subject);
         assertEq(out.score, 400, "520 - 120");
@@ -122,9 +124,10 @@ contract RiskEngineV2Test is Test {
     }
 
     function test_RepayStale_Penalty() public {
+        vm.warp(31 days + 1000);
         mockLoan.setPosition(subject, collateralAsset, 100e18, 50e6, 5000, 700);
         mockLoan.setMaxBorrow(subject, collateralAsset, 100e6);
-        mockLoan.setLastRepayAt(subject, uint64(block.timestamp - 31 days));
+        mockLoan.setLastRepayAt(subject, uint64(block.timestamp - 31 days - 1));
         IRiskEngineV2.RiskOutput memory out = engine.evaluate(subject);
         assertEq(out.score, 440, "520 - 80");
         assertEq(out.reasonCodes[0], engine.REASON_REPAY_STALE());
@@ -133,6 +136,7 @@ contract RiskEngineV2Test is Test {
     function test_UtilLow_Bonus() public {
         mockLoan.setPosition(subject, collateralAsset, 100e18, 30e6, 3000, 700);
         mockLoan.setMaxBorrow(subject, collateralAsset, 100e6);
+        mockLoan.setLastRepayAt(subject, uint64(block.timestamp));
         IRiskEngineV2.RiskOutput memory out = engine.evaluate(subject);
         assertEq(out.score, 560, "520 + 40");
         assertEq(out.reasonCodes[0], engine.REASON_UTIL_LOW());

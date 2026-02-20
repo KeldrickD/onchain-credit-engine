@@ -76,6 +76,7 @@ contract E2ERiskCommitTest is Test {
 
         priceRouter.transferOwnership(admin);
         collateralManager.transferOwnership(admin);
+        loanEngine.transferOwnership(admin);
 
         vm.startPrank(admin);
         collateralManager.setLoanEngine(address(loanEngine));

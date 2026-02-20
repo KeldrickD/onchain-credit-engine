@@ -48,8 +48,9 @@ contract E2ESubjectRiskCommitTest is Test {
         riskEngine = new RiskEngineV2(address(attestationRegistry), address(mockLoan));
         subjectRegistry = new SubjectRegistry();
 
+        bytes32 issuerRole = attestationRegistry.ISSUER_ROLE();
         vm.prank(admin);
-        attestationRegistry.grantRole(attestationRegistry.ISSUER_ROLE(), oracleSigner);
+        attestationRegistry.grantRole(issuerRole, oracleSigner);
 
         vm.prank(sponsor);
         dealSubjectId = subjectRegistry.createSubjectWithNonce(DEAL);

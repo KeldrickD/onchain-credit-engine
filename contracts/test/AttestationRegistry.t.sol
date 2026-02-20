@@ -28,8 +28,9 @@ contract AttestationRegistryTest is Test {
         vm.warp(1000);
 
         registry = new AttestationRegistry(admin);
+        bytes32 issuerRole = registry.ISSUER_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.ISSUER_ROLE(), issuer);
+        registry.grantRole(issuerRole, issuer);
     }
 
     function _makeAttestation(
@@ -112,7 +113,7 @@ contract AttestationRegistryTest is Test {
         IAttestationRegistry.Attestation memory aNoi =
             _makeAttestation(subject, NOI_TYPE, keccak256("noi"), bytes32(0), "", 0, 0, 0);
         IAttestationRegistry.Attestation memory aDscr =
-            _makeAttestation(subject, DSCR_TYPE, keccak256("dscr"), bytes32(0), "", 0, 0, 0);
+            _makeAttestation(subject, DSCR_TYPE, keccak256("dscr"), bytes32(0), "", 0, 0, 1);
 
         bytes32 idNoi = registry.submitAttestation(aNoi, _signAttestation(aNoi, ISSUER_KEY));
         bytes32 idDscr = registry.submitAttestation(aDscr, _signAttestation(aDscr, ISSUER_KEY));
@@ -247,9 +248,10 @@ contract AttestationRegistryTest is Test {
         uint64 expiresAt = issuedAt - 1;
         IAttestationRegistry.Attestation memory a =
             _makeAttestation(subject, NOI_TYPE, keccak256("x"), bytes32(0), "", issuedAt, expiresAt, 0);
+        bytes memory sig = _signAttestation(a, ISSUER_KEY);
 
         vm.expectRevert(IAttestationRegistry.AttestationRegistry_InvalidExpiry.selector);
-        registry.submitAttestation(a, _signAttestation(a, ISSUER_KEY));
+        registry.submitAttestation(a, sig);
     }
 
     function test_SubmitAttestation_ZeroExpiry_NoExpiry() public {
@@ -268,9 +270,10 @@ contract AttestationRegistryTest is Test {
     function test_SubmitAttestation_ZeroSubject_Reverts() public {
         IAttestationRegistry.Attestation memory a =
             _makeAttestation(address(0), NOI_TYPE, keccak256("x"), bytes32(0), "", 0, 0, 0);
+        bytes memory sig = _signAttestation(a, ISSUER_KEY);
 
         vm.expectRevert(IAttestationRegistry.AttestationRegistry_InvalidSubject.selector);
-        registry.submitAttestation(a, _signAttestation(a, ISSUER_KEY));
+        registry.submitAttestation(a, sig);
     }
 
     function test_Constructor_ZeroAdmin_Reverts() public {

@@ -70,17 +70,17 @@ contract SubjectRegistryTest is Test {
 
     function test_CreateSubjectWithNonce_DeterministicUniqueIds() public {
         vm.prank(controller);
-        bytes32 id1 = subjectRegistry.createSubjectWithNonce(DEAL);
+        bytes32 id1 = registry.createSubjectWithNonce(DEAL);
         vm.prank(controller);
-        bytes32 id2 = subjectRegistry.createSubjectWithNonce(DEAL);
+        bytes32 id2 = registry.createSubjectWithNonce(DEAL);
         vm.prank(controller);
-        bytes32 id3 = subjectRegistry.createSubjectWithNonce(ENTITY);
+        bytes32 id3 = registry.createSubjectWithNonce(ENTITY);
 
         assertNotEq(id1, id2);
         assertNotEq(id2, id3);
-        assertEq(subjectRegistry.controllerOf(id1), controller);
-        assertEq(subjectRegistry.controllerOf(id2), controller);
-        assertEq(subjectRegistry.controllerNonce(controller), 3);
+        assertEq(registry.controllerOf(id1), controller);
+        assertEq(registry.controllerOf(id2), controller);
+        assertEq(registry.controllerNonce(controller), 3);
     }
 
     function test_IsAuthorized_ControllerAndDelegate() public {

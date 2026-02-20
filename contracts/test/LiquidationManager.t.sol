@@ -124,9 +124,9 @@ contract LiquidationManagerTest is Test {
     function _openLoan() internal {
         IPriceOracle.PricePayload memory pricePayload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         signedOracle.verifyPricePayload(pricePayload, _signPricePayload(pricePayload));
 
@@ -138,7 +138,7 @@ contract LiquidationManagerTest is Test {
             score: 750,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 1
+            nonce: riskOracle.nextNonce(borrower)
         });
         bytes memory sig = _signRiskPayload(payload);
         engine.openLoan(address(collateral), BORROW_AMOUNT, payload, sig);
@@ -155,7 +155,7 @@ contract LiquidationManagerTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _makePricePayload(uint256 priceUSDC6, uint256 nonce)
+    function _makePricePayload(uint256 priceUSDC6)
         internal
         view
         returns (IPriceOracle.PricePayload memory)
@@ -165,7 +165,7 @@ contract LiquidationManagerTest is Test {
                 asset: address(collateral),
                 price: priceUSDC6,
                 timestamp: block.timestamp,
-                nonce: nonce
+                nonce: signedOracle.nextNonce(address(collateral))
             });
     }
 
@@ -180,7 +180,7 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_HealthyPosition_CannotBeLiquidated() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(1e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(1e8);
         bytes memory sig = _signPricePayload(payload);
 
         vm.startPrank(liquidator);
@@ -191,7 +191,7 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_PriceDrop_LiquidationSucceeds() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e8);
         bytes memory sig = _signPricePayload(payload);
 
         uint256 liqBalBefore = collateral.balanceOf(liquidator);
@@ -207,7 +207,7 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_CloseFactorEnforced() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e8);
         bytes memory sig = _signPricePayload(payload);
 
         vm.startPrank(liquidator);
@@ -218,12 +218,12 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_LiquidationBonusPaid() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e8);
         bytes memory sig = _signPricePayload(payload);
 
         uint256 repayAmount = 37.5e6;
-        uint256 priceUSDC6 = 0.5e6;
-        uint256 baseCollateral = (repayAmount * 1e18) / priceUSDC6;
+        uint256 priceUSD8 = 0.5e8;
+        uint256 baseCollateral = (repayAmount * 1e20) / priceUSD8;
         uint256 withBonus = (baseCollateral * (10000 + 800)) / 10000;
 
         vm.startPrank(liquidator);
@@ -235,7 +235,7 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_PricePayloadReplayFails() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e8);
         bytes memory sig = _signPricePayload(payload);
 
         vm.startPrank(liquidator);
@@ -247,7 +247,7 @@ contract LiquidationManagerTest is Test {
     }
 
     function test_LiquidatorMustApproveVault() public {
-        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e6, 2);
+        IPriceOracle.PricePayload memory payload = _makePricePayload(0.5e8);
         bytes memory sig = _signPricePayload(payload);
 
         vm.prank(liquidator);
@@ -309,9 +309,9 @@ contract LiquidationManagerTest is Test {
 
         IPriceOracle.PricePayload memory pricePayload = IPriceOracle.PricePayload({
             asset: address(maliciousColl),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 50
+            nonce: signedOracle.nextNonce(address(maliciousColl))
         });
         signedOracle.verifyPricePayload(pricePayload, _signPricePayloadForOracle(pricePayload, signedOracle));
 
@@ -323,7 +323,7 @@ contract LiquidationManagerTest is Test {
             score: 750,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 100
+            nonce: riskOracle.nextNonce(borrower)
         });
         engineMal.openLoan(address(maliciousColl), 75e6, rp, _signRiskPayload(rp));
         vm.stopPrank();
@@ -331,9 +331,9 @@ contract LiquidationManagerTest is Test {
         attacker.setBorrower(borrower);
         IPriceOracle.PricePayload memory pp = IPriceOracle.PricePayload({
             asset: address(maliciousColl),
-            price: 0.5e6,
+            price: 0.5e8,
             timestamp: block.timestamp,
-            nonce: 51
+            nonce: signedOracle.nextNonce(address(maliciousColl))
         }); // Drop price for liquidation
         bytes memory sig = _signPricePayloadForOracle(pp, signedOracle);
         vm.expectRevert();
@@ -374,9 +374,9 @@ contract LiquidationManagerTest is Test {
 
         IPriceOracle.PricePayload memory pricePayload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 1e6,
+            price: 1e8,
             timestamp: block.timestamp,
-            nonce: 100
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         signedOracle.verifyPricePayload(pricePayload, _signPricePayloadForOracle(pricePayload, signedOracle));
 
@@ -388,16 +388,16 @@ contract LiquidationManagerTest is Test {
             score: 750,
             riskTier: 2,
             timestamp: block.timestamp,
-            nonce: 100
+            nonce: riskOracle.nextNonce(borrower2)
         });
         engine.openLoan(address(collateral), 75e6, rp, _signRiskPayload(rp));
         vm.stopPrank();
 
         IPriceOracle.PricePayload memory dropPayload = IPriceOracle.PricePayload({
             asset: address(collateral),
-            price: 0.90e6,
+            price: 0.90e8,
             timestamp: block.timestamp,
-            nonce: 101
+            nonce: signedOracle.nextNonce(address(collateral))
         });
         bytes memory sig = _signPricePayloadForOracle(dropPayload, signedOracle);
 

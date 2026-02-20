@@ -26,6 +26,7 @@ interface IDealFactory {
     );
     event DealMetadataUpdated(bytes32 indexed dealId, string metadataURI);
     event DealDeactivated(bytes32 indexed dealId, address indexed by);
+    event DealDelegateSet(bytes32 indexed dealId, address indexed delegate, bool allowed, address indexed by);
 
     error DealFactory_NotAuthorized();
     error DealFactory_DealNotFound();
@@ -40,5 +41,6 @@ interface IDealFactory {
 
     function setDealMetadata(bytes32 dealId, string calldata metadataURI) external;
     function deactivateDeal(bytes32 dealId) external;
+    function setDealDelegate(bytes32 dealId, address delegate, bool allowed) external;
     function getDeal(bytes32 dealId) external view returns (Deal memory);
 }

@@ -111,7 +111,7 @@ contract CreditRegistryTest is Test {
         bytes memory sig = _signPayload(payload);
 
         vm.expectEmit(true, true, true, true);
-        emit CreditProfileUpdated(user, 600, 3, payload.timestamp, 1);
+        emit CreditProfileUpdated(user, 600, 3, payload.timestamp, payload.nonce);
 
         registry.updateCreditProfile(payload, sig);
     }

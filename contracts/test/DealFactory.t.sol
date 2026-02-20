@@ -41,7 +41,8 @@ contract DealFactoryTest is Test {
         );
 
         assertNotEq(dealId, bytes32(0));
-        assertEq(subjectRegistry.controllerOf(dealId), sponsor);
+        assertEq(subjectRegistry.controllerOf(dealId), address(factory));
+        assertTrue(subjectRegistry.isAuthorized(dealId, sponsor));
         assertEq(subjectRegistry.subjectTypeOf(dealId), SFR);
 
         IDealFactory.Deal memory d = factory.getDeal(dealId);
@@ -89,7 +90,7 @@ contract DealFactoryTest is Test {
         bytes32 dealId = factory.createDeal(SFR, "ipfs://old", WETH, REQUESTED);
 
         vm.prank(sponsor);
-        subjectRegistry.setDelegate(dealId, delegate, true);
+        factory.setDealDelegate(dealId, delegate, true);
 
         vm.prank(delegate);
         factory.setDealMetadata(dealId, "ipfs://by-delegate");
@@ -121,7 +122,7 @@ contract DealFactoryTest is Test {
         vm.prank(sponsor);
         bytes32 dealId = factory.createDeal(SFR, "ipfs://x", WETH, REQUESTED);
         vm.prank(sponsor);
-        subjectRegistry.setDelegate(dealId, delegate, true);
+        factory.setDealDelegate(dealId, delegate, true);
 
         vm.prank(delegate);
         factory.deactivateDeal(dealId);

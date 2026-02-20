@@ -19,19 +19,20 @@ contract IssuerRegistryTest is Test {
         vm.prank(admin);
         registry = new IssuerRegistry(admin);
 
+        bytes32 managerRole = registry.MANAGER_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.MANAGER_ROLE(), manager);
+        registry.grantRole(managerRole, manager);
     }
 
     function test_SetIssuer_ByManager() public {
         vm.prank(manager);
         registry.setIssuer(issuer, true, 7_500, keccak256("meta"), "ipfs://issuer");
 
-        (bool active, uint16 trustScoreBps, uint64 since,, string memory metadataURI) = registry.getIssuer(issuer);
-        assertTrue(active);
-        assertEq(trustScoreBps, 7_500);
-        assertGt(since, 0);
-        assertEq(metadataURI, "ipfs://issuer");
+        IssuerRegistry.IssuerInfo memory info = registry.getIssuer(issuer);
+        assertTrue(info.active);
+        assertEq(info.trustScoreBps, 7_500);
+        assertGt(info.since, 0);
+        assertEq(info.metadataURI, "ipfs://issuer");
     }
 
     function test_SetIssuer_NonManagerReverts() public {
