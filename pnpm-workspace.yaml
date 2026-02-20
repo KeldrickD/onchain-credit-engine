@@ -3,3 +3,4 @@ packages:
   - "backend/monitor"
   - "backend/oracle-signer"
   - "frontend"
+  - "examples/lending-gate"
