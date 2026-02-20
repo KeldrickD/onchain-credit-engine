@@ -3,4 +3,5 @@ packages:
   - "backend/monitor"
   - "backend/oracle-signer"
   - "frontend"
+  - "packages/ocx-sdk"
   - "examples/lending-gate"

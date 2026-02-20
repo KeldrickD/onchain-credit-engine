@@ -29,7 +29,7 @@ jobs:
           cache-dependency-path: examples/lending-gate/package.json
 
       - name: Install dependencies
-        run: pnpm -C examples/lending-gate i
+        run: pnpm install
 
       - name: Typecheck
         run: pnpm -C examples/lending-gate lint
