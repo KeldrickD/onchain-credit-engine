@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IAttestationRegistry} from "./interfaces/IAttestationRegistry.sol";
+import {IIssuerRegistry} from "./interfaces/IIssuerRegistry.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {AttestationSignatureVerifier} from "./libraries/AttestationSignatureVerifier.sol";
 
@@ -40,6 +41,7 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
     }
 
     bytes32 private constant SUBJECT_ATTESTATION_ID_PREFIX = keccak256("SUBJECT_ATTESTATION_V1");
+    event IssuerRegistrySet(address indexed oldRegistry, address indexed newRegistry);
 
     mapping(bytes32 => StoredAttestationInternal) private _attestations;
     mapping(bytes32 => StoredSubjectAttestationInternal) private _subjectAttestations;
@@ -49,10 +51,16 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
     mapping(bytes32 => uint64) public nextSubjectNonce;
     mapping(bytes32 => bool) private _revoked;
     mapping(bytes32 => address) private _issuerByAttestationId;
+    address public issuerRegistry;
 
     constructor(address admin) AccessControl() {
         if (admin == address(0)) revert AttestationRegistry_InvalidSubject();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
+
+    function setIssuerRegistry(address issuerRegistry_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit IssuerRegistrySet(issuerRegistry, issuerRegistry_);
+        issuerRegistry = issuerRegistry_;
     }
 
     function submitAttestation(Attestation calldata a, bytes calldata signature)
@@ -325,5 +333,26 @@ contract AttestationRegistry is IAttestationRegistry, AccessControl {
         if (s.issuer == address(0)) return false;
         if (s.expiresAt != 0 && block.timestamp >= s.expiresAt) return false;
         return true;
+    }
+
+    function isTrustedIssuerForAttestation(bytes32 attestationId) external view override returns (bool) {
+        if (issuerRegistry == address(0)) return false;
+
+        AttestationKind k = kindOf[attestationId];
+        if (k == AttestationKind.NONE) return false;
+
+        bytes32 attType;
+        address issuer;
+        if (k == AttestationKind.WALLET) {
+            StoredAttestationInternal storage a = _attestations[attestationId];
+            attType = a.attestationType;
+            issuer = a.issuer;
+        } else {
+            StoredSubjectAttestationInternal storage s = _subjectAttestations[attestationId];
+            attType = s.attestationType;
+            issuer = s.issuer;
+        }
+        if (issuer == address(0)) return false;
+        return IIssuerRegistry(issuerRegistry).isTrustedForType(issuer, attType);
     }
 }

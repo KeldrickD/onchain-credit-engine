@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IRiskEngineV2} from "./interfaces/IRiskEngineV2.sol";
 import {IAttestationRegistry} from "./interfaces/IAttestationRegistry.sol";
 import {ILoanEngine} from "./interfaces/ILoanEngine.sol";
+import {IIssuerRegistry} from "./interfaces/IIssuerRegistry.sol";
 
 /// @title RiskEngineV2
 /// @notice Deterministic, evidence-backed scoring: attestations + protocol behavior
@@ -28,6 +29,10 @@ contract RiskEngineV2 is IRiskEngineV2 {
     bytes32 public constant REASON_UTIL_LOW = keccak256("UTIL_LOW");
     bytes32 public constant REASON_REPAY_STALE = keccak256("REPAY_STALE");
     bytes32 public constant REASON_SUBJECT_MODE = keccak256("SUBJECT_MODE");
+    bytes32 public constant REASON_UNTRUSTED_KYB = keccak256("UNTRUSTED_KYB");
+    bytes32 public constant REASON_UNTRUSTED_DSCR = keccak256("UNTRUSTED_DSCR");
+    bytes32 public constant REASON_UNTRUSTED_NOI = keccak256("UNTRUSTED_NOI");
+    bytes32 public constant REASON_UNTRUSTED_SPONSOR = keccak256("UNTRUSTED_SPONSOR");
 
     uint256 private constant BASE_SCORE = 520;
     uint256 private constant BASE_SCORE_SUBJECT = 480;
@@ -40,103 +45,121 @@ contract RiskEngineV2 is IRiskEngineV2 {
     uint256 private constant REPAY_STALE_SECS = 30 days;
     uint256 private constant CONFIDENCE_BASE = 1500;
     uint256 private constant CONFIDENCE_SUBJECT_MISSING_DSCR = 50;
+    uint16 private constant LEGACY_TRUST_BPS = 10_000;
+    uint16 private constant MID_TRUST_BPS = 4_000;
 
     IAttestationRegistry public immutable attestationRegistry;
     ILoanEngine public immutable loanEngine;
+    address public issuerRegistry;
+    address public immutable admin;
+
+    event IssuerRegistrySet(address indexed oldRegistry, address indexed newRegistry);
+
+    error RiskEngineV2_NotAdmin();
 
     constructor(address _attestationRegistry, address _loanEngine) {
         attestationRegistry = IAttestationRegistry(_attestationRegistry);
         loanEngine = ILoanEngine(_loanEngine);
+        admin = msg.sender;
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert RiskEngineV2_NotAdmin();
+        _;
+    }
+
+    function setIssuerRegistry(address newRegistry) external onlyAdmin {
+        emit IssuerRegistrySet(issuerRegistry, newRegistry);
+        issuerRegistry = newRegistry;
     }
 
     function evaluate(address subject) external view override returns (RiskOutput memory out) {
-        (bytes32[] memory reasons, bytes32[] memory evidence) = _collectReasonsAndEvidence(subject);
+        (bytes32[] memory reasons, bytes32[] memory evidence, int256 scoreDelta, uint256 conf) = _collectReasonsAndEvidence(
+            subject
+        );
         out.reasonCodes = reasons;
         out.evidence = evidence;
 
-        int256 delta = 0;
-        for (uint256 i = 0; i < reasons.length; i++) {
-            bytes32 r = reasons[i];
-            if (r == REASON_KYB_PASS) delta += 120;
-            else if (r == REASON_DSCR_STRONG) delta += 160;
-            else if (r == REASON_DSCR_MID) delta += 90;
-            else if (r == REASON_DSCR_WEAK) delta -= 120;
-            else if (r == REASON_NOI_PRESENT) delta += 60;
-            else if (r == REASON_SPONSOR_TRACK) delta += 80;
-            else if (r == REASON_HAS_LIQUIDATIONS) delta -= 250;
-            else if (r == REASON_UTIL_HIGH) delta -= 120;
-            else if (r == REASON_UTIL_MID) delta -= 60;
-            else if (r == REASON_UTIL_LOW) delta += 40;
-            else if (r == REASON_REPAY_STALE) delta -= 80;
-        }
-
         out.modelId = MODEL_ID;
-        out.score = uint16(_clamp(int256(BASE_SCORE) + delta, 0, 1000));
+        out.score = uint16(_clamp(int256(BASE_SCORE) + scoreDelta, 0, 1000));
         out.tier = uint8(_scoreToTier(out.score));
-        out.confidenceBps = uint16(_clamp(int256(_confidenceDeltas(subject, reasons)), 0, BPS_MAX));
+        out.confidenceBps = uint16(_clamp(int256(conf), 0, BPS_MAX));
     }
 
     function evaluateSubject(bytes32 subjectId) external view override returns (RiskOutput memory out) {
-        (bytes32[] memory reasons, bytes32[] memory evidence) = _collectReasonsAndEvidenceSubject(subjectId);
+        (bytes32[] memory reasons, bytes32[] memory evidence, int256 scoreDelta, uint256 conf) =
+            _collectReasonsAndEvidenceSubject(subjectId);
         out.reasonCodes = reasons;
         out.evidence = evidence;
 
-        int256 delta = 0;
-        for (uint256 i = 0; i < reasons.length; i++) {
-            bytes32 r = reasons[i];
-            if (r == REASON_SUBJECT_MODE) continue; // marker only
-            if (r == REASON_KYB_PASS) delta += 150;
-            else if (r == REASON_DSCR_STRONG) delta += 160;
-            else if (r == REASON_DSCR_MID) delta += 90;
-            else if (r == REASON_DSCR_WEAK) delta -= 120;
-            else if (r == REASON_NOI_PRESENT) delta += 80;
-            else if (r == REASON_SPONSOR_TRACK) delta += 100;
-        }
-
         out.modelId = MODEL_ID;
-        out.score = uint16(_clamp(int256(BASE_SCORE_SUBJECT) + delta, 0, 1000));
+        out.score = uint16(_clamp(int256(BASE_SCORE_SUBJECT) + scoreDelta, 0, 1000));
         out.tier = uint8(_scoreToTier(out.score));
-        out.confidenceBps = uint16(_clamp(int256(_confidenceDeltasSubject(subjectId, reasons)), 0, BPS_MAX));
+        out.confidenceBps = uint16(_clamp(int256(conf), 0, BPS_MAX));
     }
 
     function _collectReasonsAndEvidenceSubject(bytes32 subjectId)
         internal
         view
-        returns (bytes32[] memory reasons, bytes32[] memory evidence)
+        returns (bytes32[] memory reasons, bytes32[] memory evidence, int256 scoreDelta, uint256 conf)
     {
         bytes32[] memory r = new bytes32[](8);
         bytes32[] memory e = new bytes32[](8);
         uint256 ri = 0;
         uint256 ei = 0;
+        conf = CONFIDENCE_BASE;
+        bool hasDscr = false;
 
         r[ri++] = REASON_SUBJECT_MODE;
 
         (bool hasKyb, bytes32 idKyb) = _getValidLatestSubject(subjectId, KYB_PASS);
         if (hasKyb) {
-            r[ri++] = REASON_KYB_PASS;
+            (uint16 trustBps, bool trusted) = _trustSubject(idKyb, KYB_PASS);
+            scoreDelta += _weightedDelta(150, trustBps, trusted);
+            conf += _weightedConfidence(2000, trustBps);
+            r[ri++] = trusted ? REASON_KYB_PASS : REASON_UNTRUSTED_KYB;
             e[ei++] = idKyb;
         }
 
         (uint256 dscrBps, bytes32 idDscr) = _getDscrBpsSubject(subjectId);
         if (dscrBps > 0) {
+            hasDscr = true;
+            (uint16 trustBps, bool trusted) = _trustSubject(idDscr, DSCR_BPS);
+            int256 dscrDelta;
             e[ei++] = idDscr;
-            if (dscrBps >= DSCR_STRONG_BPS) r[ri++] = REASON_DSCR_STRONG;
-            else if (dscrBps >= DSCR_MID_MIN_BPS) r[ri++] = REASON_DSCR_MID;
-            else r[ri++] = REASON_DSCR_WEAK;
+            if (dscrBps >= DSCR_STRONG_BPS) {
+                dscrDelta = 160;
+                r[ri++] = trusted ? REASON_DSCR_STRONG : REASON_UNTRUSTED_DSCR;
+            } else if (dscrBps >= DSCR_MID_MIN_BPS) {
+                dscrDelta = 90;
+                r[ri++] = trusted ? REASON_DSCR_MID : REASON_UNTRUSTED_DSCR;
+            } else {
+                dscrDelta = -120;
+                r[ri++] = trusted ? REASON_DSCR_WEAK : REASON_UNTRUSTED_DSCR;
+            }
+            scoreDelta += _weightedDelta(dscrDelta, trustBps, trusted);
+            conf += _weightedConfidence(2500, trustBps);
         }
 
         (bool hasNoi, bytes32 idNoi, uint256 noiData) = _getValidLatestSubjectNoi(subjectId);
         if (hasNoi && noiData != 0) {
-            r[ri++] = REASON_NOI_PRESENT;
+            (uint16 trustBps, bool trusted) = _trustSubject(idNoi, NOI_USD6);
+            scoreDelta += _weightedDelta(80, trustBps, trusted);
+            conf += _weightedConfidence(1000, trustBps);
+            r[ri++] = trusted ? REASON_NOI_PRESENT : REASON_UNTRUSTED_NOI;
             e[ei++] = idNoi;
         }
 
         (bool hasSponsor, bytes32 idSponsor) = _getValidLatestSubject(subjectId, SPONSOR_TRACK);
         if (hasSponsor) {
-            r[ri++] = REASON_SPONSOR_TRACK;
+            (uint16 trustBps, bool trusted) = _trustSubject(idSponsor, SPONSOR_TRACK);
+            scoreDelta += _weightedDelta(100, trustBps, trusted);
+            conf += _weightedConfidence(1000, trustBps);
+            r[ri++] = trusted ? REASON_SPONSOR_TRACK : REASON_UNTRUSTED_SPONSOR;
             e[ei++] = idSponsor;
         }
 
+        if (!hasDscr) conf -= CONFIDENCE_SUBJECT_MISSING_DSCR;
         reasons = _trim(r, ri);
         evidence = _trim(e, ei);
     }
@@ -188,48 +211,83 @@ contract RiskEngineV2 is IRiskEngineV2 {
     function _collectReasonsAndEvidence(address subject)
         internal
         view
-        returns (bytes32[] memory reasons, bytes32[] memory evidence)
+        returns (bytes32[] memory reasons, bytes32[] memory evidence, int256 scoreDelta, uint256 conf)
     {
-        bytes32[] memory r = new bytes32[](10);
-        bytes32[] memory e = new bytes32[](10);
+        bytes32[] memory r = new bytes32[](12);
+        bytes32[] memory e = new bytes32[](12);
         uint256 ri = 0;
         uint256 ei = 0;
+        conf = CONFIDENCE_BASE;
 
         (bool hasKyb, bytes32 idKyb) = _getValidLatest(subject, KYB_PASS);
         if (hasKyb) {
-            r[ri++] = REASON_KYB_PASS;
+            (uint16 trustBps, bool trusted) = _trustWallet(idKyb, KYB_PASS);
+            scoreDelta += _weightedDelta(120, trustBps, trusted);
+            conf += _weightedConfidence(2000, trustBps);
+            r[ri++] = trusted ? REASON_KYB_PASS : REASON_UNTRUSTED_KYB;
             e[ei++] = idKyb;
         }
 
         (uint256 dscrBps, bytes32 idDscr) = _getDscrBps(subject);
         if (dscrBps > 0) {
+            (uint16 trustBps, bool trusted) = _trustWallet(idDscr, DSCR_BPS);
+            int256 dscrDelta;
             e[ei++] = idDscr;
-            if (dscrBps >= DSCR_STRONG_BPS) r[ri++] = REASON_DSCR_STRONG;
-            else if (dscrBps >= DSCR_MID_MIN_BPS) r[ri++] = REASON_DSCR_MID;
-            else r[ri++] = REASON_DSCR_WEAK;
+            if (dscrBps >= DSCR_STRONG_BPS) {
+                dscrDelta = 160;
+                r[ri++] = trusted ? REASON_DSCR_STRONG : REASON_UNTRUSTED_DSCR;
+            } else if (dscrBps >= DSCR_MID_MIN_BPS) {
+                dscrDelta = 90;
+                r[ri++] = trusted ? REASON_DSCR_MID : REASON_UNTRUSTED_DSCR;
+            } else {
+                dscrDelta = -120;
+                r[ri++] = trusted ? REASON_DSCR_WEAK : REASON_UNTRUSTED_DSCR;
+            }
+            scoreDelta += _weightedDelta(dscrDelta, trustBps, trusted);
+            conf += _weightedConfidence(2500, trustBps);
         }
 
         (bool hasNoi, bytes32 idNoi) = _getValidLatest(subject, NOI_USD6);
         if (hasNoi) {
-            r[ri++] = REASON_NOI_PRESENT;
+            (uint16 trustBps, bool trusted) = _trustWallet(idNoi, NOI_USD6);
+            scoreDelta += _weightedDelta(60, trustBps, trusted);
+            conf += _weightedConfidence(1000, trustBps);
+            r[ri++] = trusted ? REASON_NOI_PRESENT : REASON_UNTRUSTED_NOI;
             e[ei++] = idNoi;
         }
 
         (bool hasSponsor, bytes32 idSponsor) = _getValidLatest(subject, SPONSOR_TRACK);
         if (hasSponsor) {
-            r[ri++] = REASON_SPONSOR_TRACK;
+            (uint16 trustBps, bool trusted) = _trustWallet(idSponsor, SPONSOR_TRACK);
+            scoreDelta += _weightedDelta(80, trustBps, trusted);
+            conf += _weightedConfidence(1000, trustBps);
+            r[ri++] = trusted ? REASON_SPONSOR_TRACK : REASON_UNTRUSTED_SPONSOR;
             e[ei++] = idSponsor;
         }
 
         uint32 liqCount = loanEngine.liquidationCount(subject);
-        if (liqCount > 0) r[ri++] = REASON_HAS_LIQUIDATIONS;
+        if (liqCount > 0) {
+            r[ri++] = REASON_HAS_LIQUIDATIONS;
+            scoreDelta += -250;
+            conf -= 1000;
+        }
 
         uint256 utilBps = _getUtilizationBps(subject);
-        if (utilBps >= UTIL_HIGH_BPS) r[ri++] = REASON_UTIL_HIGH;
-        else if (utilBps >= UTIL_MID_BPS) r[ri++] = REASON_UTIL_MID;
-        else if (utilBps > 0 && utilBps < UTIL_LOW_BPS) r[ri++] = REASON_UTIL_LOW;
+        if (utilBps >= UTIL_HIGH_BPS) {
+            r[ri++] = REASON_UTIL_HIGH;
+            scoreDelta += -120;
+        } else if (utilBps >= UTIL_MID_BPS) {
+            r[ri++] = REASON_UTIL_MID;
+            scoreDelta += -60;
+        } else if (utilBps > 0 && utilBps < UTIL_LOW_BPS) {
+            r[ri++] = REASON_UTIL_LOW;
+            scoreDelta += 40;
+        }
 
-        if (_isRepayStale(subject)) r[ri++] = REASON_REPAY_STALE;
+        if (_isRepayStale(subject)) {
+            r[ri++] = REASON_REPAY_STALE;
+            scoreDelta += -80;
+        }
 
         reasons = _trim(r, ri);
         evidence = _trim(e, ei);
@@ -267,16 +325,36 @@ contract RiskEngineV2 is IRiskEngineV2 {
         return block.timestamp > lastRepay + REPAY_STALE_SECS;
     }
 
-    function _confidenceDeltas(address subject, bytes32[] memory reasons) internal view returns (uint256 conf) {
-        conf = CONFIDENCE_BASE;
-        for (uint256 i = 0; i < reasons.length; i++) {
-            bytes32 r = reasons[i];
-            if (r == REASON_KYB_PASS) conf += 2000;
-            else if (r == REASON_DSCR_STRONG || r == REASON_DSCR_MID || r == REASON_DSCR_WEAK) conf += 2500;
-            else if (r == REASON_SPONSOR_TRACK) conf += 1000;
-            else if (r == REASON_NOI_PRESENT) conf += 1000;
-            else if (r == REASON_HAS_LIQUIDATIONS) conf -= 1000;
-        }
+    function _weightedConfidence(uint256 baseDelta, uint16 trustBps) internal pure returns (uint256) {
+        return (baseDelta * trustBps) / LEGACY_TRUST_BPS;
+    }
+
+    function _weightedDelta(int256 fullDelta, uint16 trustBps, bool trusted) internal pure returns (int256) {
+        if (trusted) return fullDelta;
+        if (trustBps >= MID_TRUST_BPS) return fullDelta / 2;
+        return 0;
+    }
+
+    function _trustWallet(bytes32 attestationId, bytes32 attestationType) internal view returns (uint16 trustBps, bool trusted) {
+        if (issuerRegistry == address(0)) return (LEGACY_TRUST_BPS, true);
+        (IAttestationRegistry.StoredAttestation memory att,,) = attestationRegistry.getAttestation(attestationId);
+        if (att.issuer == address(0)) return (0, false);
+        IIssuerRegistry reg = IIssuerRegistry(issuerRegistry);
+        trustBps = reg.trustScoreBps(att.issuer);
+        trusted = reg.isTrustedForType(att.issuer, attestationType);
+    }
+
+    function _trustSubject(bytes32 attestationId, bytes32 attestationType)
+        internal
+        view
+        returns (uint16 trustBps, bool trusted)
+    {
+        if (issuerRegistry == address(0)) return (LEGACY_TRUST_BPS, true);
+        (IAttestationRegistry.StoredSubjectAttestation memory att,,) = attestationRegistry.getSubjectAttestation(attestationId);
+        if (att.issuer == address(0)) return (0, false);
+        IIssuerRegistry reg = IIssuerRegistry(issuerRegistry);
+        trustBps = reg.trustScoreBps(att.issuer);
+        trusted = reg.isTrustedForType(att.issuer, attestationType);
     }
 
     function _scoreToTier(uint256 score) internal pure returns (uint256) {

@@ -107,6 +107,9 @@ interface IAttestationRegistry {
         returns (StoredSubjectAttestation memory att, bool revoked, bool expired);
 
     function isValid(bytes32 attestationId) external view returns (bool);
+    function issuerRegistry() external view returns (address);
+    function setIssuerRegistry(address issuerRegistry_) external;
+    function isTrustedIssuerForAttestation(bytes32 attestationId) external view returns (bool);
     function nextNonce(address subject) external view returns (uint64);
     function nextSubjectNonce(bytes32 subjectId) external view returns (uint64);
 }
