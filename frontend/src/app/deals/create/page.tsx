@@ -9,13 +9,13 @@ export default function DealsCreatePage() {
     <main className="mx-auto max-w-2xl px-4 py-12">
       <header className="mb-10 flex items-center justify-between">
         <Link href="/deals" className="text-neutral-500 hover:text-neutral-300">
-          ← Deals
+          ← Examples
         </Link>
         <ConnectButton />
       </header>
-      <h1 className="mb-2 text-2xl font-bold">Create deal</h1>
+      <h1 className="mb-2 text-2xl font-bold">Demo: Create deal</h1>
       <p className="mb-6 text-neutral-500">
-        Register a first-class deal subject (sponsor, type, metadata, requested capital).
+        Example: register a deal subject via SubjectRegistry (sponsor, type, metadata, requested capital).
       </p>
       <DealCreateForm />
     </main>

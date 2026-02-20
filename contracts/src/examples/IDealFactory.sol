@@ -2,13 +2,13 @@
 pragma solidity ^0.8.24;
 
 /// @title IDealFactory
-/// @notice CapitalMethod deal packaging: first-class deal subject + metadata + capital request
+/// @notice Example: first-class deal subject + metadata + capital request (built on SubjectRegistry)
 interface IDealFactory {
     struct Deal {
         bytes32 dealId;
         address sponsor;
         bytes32 dealType;         // keccak256("SFR"), "MF", "DEV", etc.
-        string metadataURI;      // ipfs://... (deal deck, etc.)
+        string metadataURI;       // ipfs://... (deal deck, etc.)
         address collateralAsset; // WETH/WBTC; later tokenized real world
         uint256 requestedUSDC6;
         uint64 createdAt;

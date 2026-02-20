@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IDealFactory} from "./interfaces/IDealFactory.sol";
-import {ISubjectRegistry} from "./interfaces/ISubjectRegistry.sol";
+import {IDealFactory} from "./IDealFactory.sol";
+import {ISubjectRegistry} from "../interfaces/ISubjectRegistry.sol";
 
 /// @title DealFactory
-/// @notice Creates first-class Deal subjects (sponsor + metadata + capital request) for CapitalMethod packaging
+/// @notice Example: creates deal subjects (sponsor + metadata + capital request) using SubjectRegistry
 contract DealFactory is IDealFactory {
     ISubjectRegistry public immutable subjectRegistry;
 

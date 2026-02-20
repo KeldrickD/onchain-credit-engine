@@ -177,7 +177,7 @@ export default function DealDetailPage() {
       <main className="mx-auto max-w-2xl px-4 py-12">
         <p className="text-neutral-500">Invalid deal ID. Use 0x + 64 hex.</p>
         <Link href="/deals" className="mt-4 block text-emerald-500 hover:underline">
-          ← Deals
+          ← Examples
         </Link>
       </main>
     );
@@ -188,7 +188,7 @@ export default function DealDetailPage() {
       <main className="mx-auto max-w-2xl px-4 py-12">
         <p className="text-neutral-500">Deal not found.</p>
         <Link href="/deals" className="mt-4 block text-emerald-500 hover:underline">
-          ← Deals
+          ← Examples
         </Link>
       </main>
     );
@@ -198,7 +198,7 @@ export default function DealDetailPage() {
     <main className="mx-auto max-w-3xl px-4 py-12">
       <header className="mb-10 flex items-center justify-between">
         <Link href="/deals" className="text-neutral-500 hover:text-neutral-300">
-          ← Deals
+          ← Examples
         </Link>
         <ConnectButton />
       </header>

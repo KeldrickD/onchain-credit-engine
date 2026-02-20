@@ -1,6 +1,14 @@
 # OCX — Onchain Credit Engine
 
-Programmable underwriting, liquidation, and operator tooling for stablecoin lending.
+**A composable, attestable credit state machine for onchain identities.**  
+Deterministic evaluation, signed commits, and reusable subject keys. No governance, no tokens—just the protocol.
+
+## Protocol-first
+
+- **[CORE_CONTRACTS.md](CORE_CONTRACTS.md)** — What counts as protocol (SubjectRegistry, AttestationRegistry, RiskOracle, CreditRegistry, RiskEngineV2, etc.).
+- **[EXAMPLES.md](EXAMPLES.md)** — Optional apps (DealFactory, Deals demo UI, capital-stack suggestion) built on top.
+- **[SPEC.md](SPEC.md)** — Canonical spec: subjectKey, attestations, payload formats, hashing, nonces.
+- **[packages/ocx-sdk](packages/ocx-sdk)** — TypeScript SDK: types, `hashReasons` / `hashEvidence`, `buildRiskPayloadV2ByKey`, EIP-712 helpers; first integration example.
 
 ## Overview
 

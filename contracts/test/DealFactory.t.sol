@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {DealFactory} from "../src/DealFactory.sol";
+import {DealFactory} from "../src/examples/DealFactory.sol";
 import {SubjectRegistry} from "../src/SubjectRegistry.sol";
-import {IDealFactory} from "../src/interfaces/IDealFactory.sol";
+import {IDealFactory} from "../src/examples/IDealFactory.sol";
 import {ISubjectRegistry} from "../src/interfaces/ISubjectRegistry.sol";
 
 contract DealFactoryTest is Test {
