@@ -17,6 +17,26 @@ export type RiskPayloadV2 = {
   nonce: bigint;
 };
 
+export type HostedRiskEvaluateRequest = {
+  kyb: boolean;
+  dscr: number;
+  noi: number;
+  sponsorScore: number;
+};
+
+export type HostedRiskEvaluateWalletRequest = HostedRiskEvaluateRequest & {
+  user: Hex;
+};
+
+export type HostedRiskEvaluateSubjectRequest = HostedRiskEvaluateRequest & {
+  subjectId: Hex;
+};
+
+export type HostedRiskDebug = {
+  reasonCodes: Hex[];
+  evidence: Hex[];
+};
+
 export type RiskPayloadV2ByKey = {
   subjectKey: Hex;
   score: number;
@@ -27,6 +47,17 @@ export type RiskPayloadV2ByKey = {
   evidenceHash: Hex;
   timestamp: bigint;
   nonce: bigint;
+};
+
+export type HostedRiskEvaluateResponse = {
+  score: number;
+  tier: number;
+  confidenceBps: number;
+  reasonsHash: Hex;
+  evidenceHash: Hex;
+  payload: RiskPayloadV2 | RiskPayloadV2ByKey;
+  signature: Hex;
+  debug: HostedRiskDebug;
 };
 
 export type SubjectAttestationPayload = {

@@ -1,4 +1,5 @@
 packages:
+  - "backend/capital-stack"
   - "backend/risk-sim"
   - "backend/monitor"
   - "backend/oracle-signer"

@@ -3,8 +3,21 @@
  */
 
 import type { Hex } from "./types.js";
+import type { RiskPayloadV2 } from "./types.js";
 import type { RiskPayloadV2ByKey } from "./types.js";
 import { hashReasons, hashEvidence } from "./hash.js";
+
+export type BuildRiskPayloadV2Params = {
+  user: Hex;
+  score: number;
+  riskTier: number;
+  confidenceBps: number;
+  modelId: Hex;
+  reasonCodes: readonly Hex[];
+  evidence: readonly Hex[];
+  timestamp: bigint;
+  nonce: bigint;
+};
 
 export type BuildRiskPayloadV2ByKeyParams = {
   subjectKey: Hex;
@@ -17,6 +30,25 @@ export type BuildRiskPayloadV2ByKeyParams = {
   timestamp: bigint;
   nonce: bigint;
 };
+
+/**
+ * Build RiskPayloadV2 with reasonsHash and evidenceHash from arrays.
+ */
+export function buildRiskPayloadV2(
+  params: BuildRiskPayloadV2Params
+): RiskPayloadV2 {
+  return {
+    user: params.user,
+    score: params.score,
+    riskTier: params.riskTier,
+    confidenceBps: params.confidenceBps,
+    modelId: params.modelId,
+    reasonsHash: hashReasons(params.reasonCodes),
+    evidenceHash: hashEvidence(params.evidence),
+    timestamp: params.timestamp,
+    nonce: params.nonce,
+  };
+}
 
 /**
  * Build RiskPayloadV2ByKey with reasonsHash and evidenceHash from arrays.

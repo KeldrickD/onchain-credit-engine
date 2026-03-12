@@ -11,10 +11,10 @@ export default function Home() {
       </header>
 
       <p className="mb-6 text-neutral-500">
-        Onchain Credit Engine — Dashboard
+        Onchain Credit Engine - Dashboard
       </p>
 
-      <nav className="mb-8 flex gap-4">
+      <nav className="mb-8 flex flex-wrap gap-4">
         <Link
           href="/borrow"
           className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-700"
@@ -44,6 +44,12 @@ export default function Home() {
           className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-700"
         >
           Examples
+        </Link>
+        <Link
+          href="/integrations"
+          className="rounded-lg bg-amber-200 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-amber-100"
+        >
+          Integrations
         </Link>
       </nav>
 

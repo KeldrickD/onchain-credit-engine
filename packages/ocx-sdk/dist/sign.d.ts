@@ -1,10 +1,41 @@
 /**
- * EIP-712 signing and verification for OCX risk payloads (v2ByKey).
+ * EIP-712 signing and verification helpers for OCX risk payloads.
  * Use with viem: signTypedData, verifyTypedData.
  */
 import type { Hex } from "./types.js";
+import type { RiskPayloadV2 } from "./types.js";
 import type { RiskPayloadV2ByKey } from "./types.js";
 import type { EIP712Domain } from "./types.js";
+export declare const RISK_PAYLOAD_V2_TYPE: {
+    readonly RiskPayloadV2: readonly [{
+        readonly name: "user";
+        readonly type: "address";
+    }, {
+        readonly name: "score";
+        readonly type: "uint16";
+    }, {
+        readonly name: "riskTier";
+        readonly type: "uint8";
+    }, {
+        readonly name: "confidenceBps";
+        readonly type: "uint16";
+    }, {
+        readonly name: "modelId";
+        readonly type: "bytes32";
+    }, {
+        readonly name: "reasonsHash";
+        readonly type: "bytes32";
+    }, {
+        readonly name: "evidenceHash";
+        readonly type: "bytes32";
+    }, {
+        readonly name: "timestamp";
+        readonly type: "uint64";
+    }, {
+        readonly name: "nonce";
+        readonly type: "uint64";
+    }];
+};
 export declare const RISK_PAYLOAD_V2_BY_KEY_TYPE: {
     readonly RiskPayloadV2ByKey: readonly [{
         readonly name: "subjectKey";
@@ -39,6 +70,67 @@ export declare const RISK_PAYLOAD_V2_BY_KEY_TYPE: {
  * Domain for Risk Oracle EIP-712. Must match onchain RiskOracle domain.
  */
 export declare function riskOracleDomain(chainId: number, verifyingContract: Hex): EIP712Domain;
+export declare function riskPayloadV2Message(payload: RiskPayloadV2): {
+    user: `0x${string}`;
+    score: number;
+    riskTier: number;
+    confidenceBps: number;
+    modelId: `0x${string}`;
+    reasonsHash: `0x${string}`;
+    evidenceHash: `0x${string}`;
+    timestamp: bigint;
+    nonce: bigint;
+};
+export declare function riskPayloadV2TypedData(domain: EIP712Domain, payload: RiskPayloadV2): {
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    types: {
+        readonly RiskPayloadV2: readonly [{
+            readonly name: "user";
+            readonly type: "address";
+        }, {
+            readonly name: "score";
+            readonly type: "uint16";
+        }, {
+            readonly name: "riskTier";
+            readonly type: "uint8";
+        }, {
+            readonly name: "confidenceBps";
+            readonly type: "uint16";
+        }, {
+            readonly name: "modelId";
+            readonly type: "bytes32";
+        }, {
+            readonly name: "reasonsHash";
+            readonly type: "bytes32";
+        }, {
+            readonly name: "evidenceHash";
+            readonly type: "bytes32";
+        }, {
+            readonly name: "timestamp";
+            readonly type: "uint64";
+        }, {
+            readonly name: "nonce";
+            readonly type: "uint64";
+        }];
+    };
+    primaryType: "RiskPayloadV2";
+    message: {
+        user: `0x${string}`;
+        score: number;
+        riskTier: number;
+        confidenceBps: number;
+        modelId: `0x${string}`;
+        reasonsHash: `0x${string}`;
+        evidenceHash: `0x${string}`;
+        timestamp: bigint;
+        nonce: bigint;
+    };
+};
 /**
  * Message for signTypedData (viem). Use with primaryType "RiskPayloadV2ByKey".
  */

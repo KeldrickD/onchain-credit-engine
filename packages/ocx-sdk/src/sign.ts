@@ -1,11 +1,26 @@
 /**
- * EIP-712 signing and verification for OCX risk payloads (v2ByKey).
+ * EIP-712 signing and verification helpers for OCX risk payloads.
  * Use with viem: signTypedData, verifyTypedData.
  */
 
 import type { Hex } from "./types.js";
+import type { RiskPayloadV2 } from "./types.js";
 import type { RiskPayloadV2ByKey } from "./types.js";
 import type { EIP712Domain } from "./types.js";
+
+export const RISK_PAYLOAD_V2_TYPE = {
+  RiskPayloadV2: [
+    { name: "user", type: "address" },
+    { name: "score", type: "uint16" },
+    { name: "riskTier", type: "uint8" },
+    { name: "confidenceBps", type: "uint16" },
+    { name: "modelId", type: "bytes32" },
+    { name: "reasonsHash", type: "bytes32" },
+    { name: "evidenceHash", type: "bytes32" },
+    { name: "timestamp", type: "uint64" },
+    { name: "nonce", type: "uint64" },
+  ],
+} as const;
 
 export const RISK_PAYLOAD_V2_BY_KEY_TYPE = {
   RiskPayloadV2ByKey: [
@@ -30,6 +45,37 @@ export function riskOracleDomain(chainId: number, verifyingContract: Hex): EIP71
     version: "1",
     chainId,
     verifyingContract,
+  };
+}
+
+export function riskPayloadV2Message(payload: RiskPayloadV2) {
+  return {
+    user: payload.user,
+    score: payload.score,
+    riskTier: payload.riskTier,
+    confidenceBps: payload.confidenceBps,
+    modelId: payload.modelId,
+    reasonsHash: payload.reasonsHash,
+    evidenceHash: payload.evidenceHash,
+    timestamp: payload.timestamp,
+    nonce: payload.nonce,
+  };
+}
+
+export function riskPayloadV2TypedData(
+  domain: EIP712Domain,
+  payload: RiskPayloadV2
+) {
+  return {
+    domain: {
+      name: domain.name,
+      version: domain.version,
+      chainId: domain.chainId,
+      verifyingContract: domain.verifyingContract,
+    },
+    types: RISK_PAYLOAD_V2_TYPE,
+    primaryType: "RiskPayloadV2" as const,
+    message: riskPayloadV2Message(payload),
   };
 }
 

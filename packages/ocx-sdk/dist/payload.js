@@ -3,6 +3,22 @@
  */
 import { hashReasons, hashEvidence } from "./hash.js";
 /**
+ * Build RiskPayloadV2 with reasonsHash and evidenceHash from arrays.
+ */
+export function buildRiskPayloadV2(params) {
+    return {
+        user: params.user,
+        score: params.score,
+        riskTier: params.riskTier,
+        confidenceBps: params.confidenceBps,
+        modelId: params.modelId,
+        reasonsHash: hashReasons(params.reasonCodes),
+        evidenceHash: hashEvidence(params.evidence),
+        timestamp: params.timestamp,
+        nonce: params.nonce,
+    };
+}
+/**
  * Build RiskPayloadV2ByKey with reasonsHash and evidenceHash from arrays.
  */
 export function buildRiskPayloadV2ByKey(params) {

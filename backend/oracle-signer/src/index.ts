@@ -11,6 +11,7 @@ import {
 } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
+import { evaluateHostedRisk, hashHexArray } from "./hosted-risk.js";
 
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 const RPC_URL = process.env.RPC_URL ?? "https://sepolia.base.org";
@@ -192,6 +193,15 @@ async function getRiskNonce(user: Hex): Promise<bigint> {
   }) as Promise<bigint>;
 }
 
+async function getRiskKeyNonce(subjectKey: Hex): Promise<bigint> {
+  return publicClient.readContract({
+    address: RISK_ORACLE,
+    abi: riskOracleAbi,
+    functionName: "nextNonceKey",
+    args: [subjectKey],
+  }) as Promise<bigint>;
+}
+
 async function getPriceNonce(asset: Hex): Promise<bigint> {
   return publicClient.readContract({
     address: PRICE_ORACLE,
@@ -264,6 +274,144 @@ function rateLimit(ip: string): boolean {
   return entry.count <= RATE_MAX;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function serializeRiskPayloadV2(payload: {
+  user: Hex;
+  score: number;
+  riskTier: number;
+  confidenceBps: number;
+  modelId: Hex;
+  reasonsHash: Hex;
+  evidenceHash: Hex;
+  timestamp: bigint;
+  nonce: bigint;
+}) {
+  return {
+    user: payload.user,
+    score: payload.score.toString(),
+    riskTier: payload.riskTier.toString(),
+    confidenceBps: payload.confidenceBps.toString(),
+    modelId: payload.modelId,
+    reasonsHash: payload.reasonsHash,
+    evidenceHash: payload.evidenceHash,
+    timestamp: payload.timestamp.toString(),
+    nonce: payload.nonce.toString(),
+  };
+}
+
+function serializeRiskPayloadV2ByKey(payload: {
+  subjectKey: Hex;
+  score: number;
+  riskTier: number;
+  confidenceBps: number;
+  modelId: Hex;
+  reasonsHash: Hex;
+  evidenceHash: Hex;
+  timestamp: bigint;
+  nonce: bigint;
+}) {
+  return {
+    subjectKey: payload.subjectKey,
+    score: payload.score.toString(),
+    riskTier: payload.riskTier.toString(),
+    confidenceBps: payload.confidenceBps.toString(),
+    modelId: payload.modelId,
+    reasonsHash: payload.reasonsHash,
+    evidenceHash: payload.evidenceHash,
+    timestamp: payload.timestamp.toString(),
+    nonce: payload.nonce.toString(),
+  };
+}
+
+async function signRiskPayloadV2(payload: {
+  user: Hex;
+  score: number;
+  riskTier: number;
+  confidenceBps: number;
+  modelId: Hex;
+  reasonsHash: Hex;
+  evidenceHash: Hex;
+  timestamp: bigint;
+  nonce: bigint;
+}): Promise<Hash> {
+  const account = privateKeyToAccount(RISK_KEY as Hex);
+  const wallet = createWalletClient({
+    account,
+    chain: { ...baseSepolia, id: CHAIN_ID },
+    transport,
+  });
+
+  return wallet.signTypedData({
+    domain: {
+      name: "OCX Risk Oracle",
+      version: "1",
+      chainId: CHAIN_ID,
+      verifyingContract: RISK_ORACLE,
+    },
+    types: {
+      RiskPayloadV2: [
+        { name: "user", type: "address" },
+        { name: "score", type: "uint16" },
+        { name: "riskTier", type: "uint8" },
+        { name: "confidenceBps", type: "uint16" },
+        { name: "modelId", type: "bytes32" },
+        { name: "reasonsHash", type: "bytes32" },
+        { name: "evidenceHash", type: "bytes32" },
+        { name: "timestamp", type: "uint64" },
+        { name: "nonce", type: "uint64" },
+      ],
+    },
+    primaryType: "RiskPayloadV2",
+    message: payload,
+  });
+}
+
+async function signRiskPayloadV2ByKey(payload: {
+  subjectKey: Hex;
+  score: number;
+  riskTier: number;
+  confidenceBps: number;
+  modelId: Hex;
+  reasonsHash: Hex;
+  evidenceHash: Hex;
+  timestamp: bigint;
+  nonce: bigint;
+}): Promise<Hash> {
+  const account = privateKeyToAccount(RISK_KEY as Hex);
+  const wallet = createWalletClient({
+    account,
+    chain: { ...baseSepolia, id: CHAIN_ID },
+    transport,
+  });
+
+  return wallet.signTypedData({
+    domain: {
+      name: "OCX Risk Oracle",
+      version: "1",
+      chainId: CHAIN_ID,
+      verifyingContract: RISK_ORACLE,
+    },
+    types: {
+      RiskPayloadV2ByKey: [
+        { name: "subjectKey", type: "bytes32" },
+        { name: "score", type: "uint16" },
+        { name: "riskTier", type: "uint8" },
+        { name: "confidenceBps", type: "uint16" },
+        { name: "modelId", type: "bytes32" },
+        { name: "reasonsHash", type: "bytes32" },
+        { name: "evidenceHash", type: "bytes32" },
+        { name: "timestamp", type: "uint64" },
+        { name: "nonce", type: "uint64" },
+      ],
+    },
+    primaryType: "RiskPayloadV2ByKey",
+    message: payload,
+  });
+}
+
 async function bootstrap() {
   const fastify = Fastify({ logger: true });
 
@@ -290,6 +438,134 @@ async function bootstrap() {
       ok: true,
       chainId: CHAIN_ID,
       configured: !!hasConfig,
+    };
+  });
+
+  fastify.post<{
+    Body: { user: string; kyb: boolean; dscr: number; noi: number; sponsorScore: number };
+  }>("/risk/evaluate", async (req, reply) => {
+    if (!RISK_KEY || !RISK_ORACLE) {
+      return reply.status(503).send({ error: "Risk v2 signer not configured" });
+    }
+
+    const { user, kyb, dscr, noi, sponsorScore } = req.body ?? {};
+    if (!user || !isValidAddress(user)) {
+      return reply.status(400).send({ error: "Missing or invalid body: { user, kyb, dscr, noi, sponsorScore }" });
+    }
+    if (
+      typeof kyb !== "boolean" ||
+      !isFiniteNumber(dscr) ||
+      !isFiniteNumber(noi) ||
+      !isFiniteNumber(sponsorScore)
+    ) {
+      return reply.status(400).send({ error: "Hosted evaluation requires typed values for kyb, dscr, noi, sponsorScore" });
+    }
+
+    const evaluation = evaluateHostedRisk({ kyb, dscr, noi, sponsorScore });
+    let nonce: bigint;
+    try {
+      nonce = await getRiskNonce(user as Hex);
+    } catch {
+      return reply.status(500).send({ error: "Risk nonce fetch failed" });
+    }
+
+    const timestamp = BigInt(Math.floor(Date.now() / 1000));
+    const payload = {
+      user: user as Hex,
+      score: evaluation.score,
+      riskTier: evaluation.tier,
+      confidenceBps: evaluation.confidenceBps,
+      modelId: evaluation.modelId,
+      reasonsHash: hashHexArray(evaluation.reasonCodes),
+      evidenceHash: hashHexArray(evaluation.evidence),
+      timestamp,
+      nonce,
+    };
+
+    let signature: Hash;
+    try {
+      signature = await signRiskPayloadV2(payload);
+    } catch (e) {
+      fastify.log.error(e);
+      return reply.status(500).send({ error: "Risk hosted signing failed" });
+    }
+
+    return {
+      score: evaluation.score,
+      tier: evaluation.tier,
+      confidenceBps: evaluation.confidenceBps,
+      reasonsHash: payload.reasonsHash,
+      evidenceHash: payload.evidenceHash,
+      payload: serializeRiskPayloadV2(payload),
+      signature,
+      debug: {
+        reasonCodes: evaluation.reasonCodes,
+        evidence: evaluation.evidence,
+      },
+    };
+  });
+
+  fastify.post<{
+    Body: { subjectId: string; kyb: boolean; dscr: number; noi: number; sponsorScore: number };
+  }>("/risk/evaluate-subject", async (req, reply) => {
+    if (!RISK_KEY || !RISK_ORACLE) {
+      return reply.status(503).send({ error: "Risk v2 signer not configured" });
+    }
+
+    const { subjectId, kyb, dscr, noi, sponsorScore } = req.body ?? {};
+    if (!subjectId || !isValidBytes32(subjectId)) {
+      return reply.status(400).send({ error: "Missing or invalid body: { subjectId, kyb, dscr, noi, sponsorScore }" });
+    }
+    if (
+      typeof kyb !== "boolean" ||
+      !isFiniteNumber(dscr) ||
+      !isFiniteNumber(noi) ||
+      !isFiniteNumber(sponsorScore)
+    ) {
+      return reply.status(400).send({ error: "Hosted evaluation requires typed values for kyb, dscr, noi, sponsorScore" });
+    }
+
+    const evaluation = evaluateHostedRisk({ kyb, dscr, noi, sponsorScore });
+    let nonce: bigint;
+    try {
+      nonce = await getRiskKeyNonce(subjectId as Hex);
+    } catch {
+      return reply.status(500).send({ error: "Risk nonce key fetch failed" });
+    }
+
+    const timestamp = BigInt(Math.floor(Date.now() / 1000));
+    const payload = {
+      subjectKey: subjectId as Hex,
+      score: evaluation.score,
+      riskTier: evaluation.tier,
+      confidenceBps: evaluation.confidenceBps,
+      modelId: evaluation.modelId,
+      reasonsHash: hashHexArray(evaluation.reasonCodes),
+      evidenceHash: hashHexArray(evaluation.evidence),
+      timestamp,
+      nonce,
+    };
+
+    let signature: Hash;
+    try {
+      signature = await signRiskPayloadV2ByKey(payload);
+    } catch (e) {
+      fastify.log.error(e);
+      return reply.status(500).send({ error: "Risk hosted by-key signing failed" });
+    }
+
+    return {
+      score: evaluation.score,
+      tier: evaluation.tier,
+      confidenceBps: evaluation.confidenceBps,
+      reasonsHash: payload.reasonsHash,
+      evidenceHash: payload.evidenceHash,
+      payload: serializeRiskPayloadV2ByKey(payload),
+      signature,
+      debug: {
+        reasonCodes: evaluation.reasonCodes,
+        evidence: evaluation.evidence,
+      },
     };
   });
 
@@ -481,12 +757,7 @@ async function bootstrap() {
 
     let nonce: bigint;
     try {
-      nonce = await publicClient.readContract({
-        address: RISK_ORACLE,
-        abi: riskOracleAbi,
-        functionName: "nextNonceKey",
-        args: [subjectId as Hex],
-      }) as bigint;
+      nonce = await getRiskKeyNonce(subjectId as Hex);
     } catch {
       return reply.status(500).send({ error: "Risk nonce key fetch failed" });
     }
@@ -1020,7 +1291,7 @@ async function bootstrap() {
     };
   });
 
-  const { capitalStackPlugin } = await import("../capital-stack/src/index.ts");
+  const { capitalStackPlugin } = await import("capital-stack");
   await fastify.register(capitalStackPlugin);
 
   fastify.setErrorHandler((err: any, req, reply) => {
@@ -1039,3 +1310,8 @@ bootstrap().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+
+
+
+

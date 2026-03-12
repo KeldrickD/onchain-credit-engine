@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "build": "pnpm -C ../capital-stack build && tsc",
+    "test": "npm run build && node --test test/hosted-risk.test.mjs",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "fastify": "^5.1.0",
     "@fastify/cors": "^10.0.0",
+    "capital-stack": "workspace:*",
     "viem": "^2.21.0"
   },
   "devDependencies": {

@@ -29,7 +29,7 @@ Both commands print:
 - gate thresholds
 - `PASS` / `FAIL`
 
-## Full demo (optional signing + commit)
+## Full demo (onchain-backed evaluate and sign)
 
 Requires a running oracle-signer backend and a funded transaction key:
 
@@ -63,6 +63,17 @@ The commit commands:
 - submit `updateCreditProfileV2` or `updateCreditProfileV2ByKey`
 - re-read profile and print gate `PASS`/`FAIL`
 
+## Hosted normalized-input lane
+
+The same signer service now exposes a faster-start hosted evaluation path:
+
+- `POST /risk/evaluate`
+- `POST /risk/evaluate-subject`
+
+These routes accept normalized inputs like `kyb`, `dscr`, `noi`, and `sponsorScore`, then return a signed OCX-compatible payload that can be committed through the same registry methods.
+
+This example script still demonstrates the trust-minimized onchain-backed flow, but the hosted lane is useful when an integrating protocol wants to start before moving its attestations fully onchain.
+
 ## Gate thresholds
 
 Optional env vars:
@@ -71,4 +82,3 @@ Optional env vars:
 - `MAX_TIER` (default `2`)
 - `USE_CONFIDENCE` (`true`/`false`, default `false`)
 - `MIN_CONFIDENCE_BPS` (default `5000`)
-
