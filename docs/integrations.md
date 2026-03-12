@@ -1,6 +1,7 @@
 # OCX Integrations
 
 OCX is a composable credit state protocol designed for lending, underwriting, and RWA platforms.
+It defines a profile format and evaluation spec, not a single canonical registry deployment.
 
 If you're building a protocol that needs:
 
@@ -11,6 +12,19 @@ If you're building a protocol that needs:
 - deterministic risk evaluation
 
 OCX can plug into your stack through a self-hosted signer flow or a hosted evaluation path that returns signed payloads ready for onchain commit.
+
+## Registry independence
+
+OCX does not require a single global registry.
+
+Protocols may:
+
+- read from a shared public OCX registry
+- deploy their own OCX registry and signer stack
+- aggregate profiles from multiple registries across chains
+
+The protocol standardizes the profile shape, hashing rules, and signed payload format.
+Deployment choice remains with the integrator.
 
 ## Typical engagements
 
@@ -63,6 +77,51 @@ Both routes return a signed OCX-compatible payload with:
 - `signature`
 
 That payload can be committed through `updateCreditProfileV2()` or `updateCreditProfileV2ByKey()`.
+
+## Using OCX safely
+
+Protocols do not integrate raw numbers.
+They integrate decision rules.
+
+OCX standardizes the profile format and evaluation spec, while each integrator chooses:
+
+- which registry deployments it trusts
+- which signer domains or `modelId` values it accepts
+- how fresh a profile must be
+- which thresholds trigger pass, review, repricing, or block
+
+Profiles are point-in-time evaluations.
+Production integrations should pair them with a freshness window derived from the signed payload timestamp, registry commit recency, or another trusted ingestion timestamp.
+
+### Reference policy
+
+Use this as a starting point, not a mandate:
+
+- `PASS`: `score >= 700`, `riskTier <= 2`, `confidenceBps >= 6000`, profile age within 7 days
+- `REVIEW`: score between `620-699`, medium confidence, or stale-but-usable profile
+- `BLOCK`: `score < 620`, `riskTier >= 4`, or `confidenceBps < 4500`
+
+Example decision flow:
+
+```ts
+const CREDIT_REGISTRY = process.env.OCX_REGISTRY as `0x${string}`
+const MIN_SCORE = Number(process.env.OCX_MIN_SCORE ?? 700)
+const MAX_TIER = Number(process.env.OCX_MAX_TIER ?? 2)
+const MIN_CONFIDENCE_BPS = Number(process.env.OCX_MIN_CONFIDENCE_BPS ?? 6000)
+
+const PASS =
+  profile.score >= MIN_SCORE &&
+  profile.riskTier <= MAX_TIER &&
+  profile.confidenceBps >= MIN_CONFIDENCE_BPS
+```
+
+### Score portability
+
+OCX does not claim that a `700` score always means the same thing across every registry, signer, or model.
+
+- OCX standardizes payload structure and commit semantics
+- score interpretation depends on deployment, model version, and policy
+- production integrators should pin accepted registry addresses, signer domains, and `modelId` values
 
 ## Phase 1 scoring policy
 

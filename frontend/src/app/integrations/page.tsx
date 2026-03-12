@@ -28,6 +28,10 @@ export default function IntegrationsPage() {
             OCX is a composable credit state protocol built for protocols that need a deterministic,
             signed risk layer without spending months building custom underwriting rails first.
           </p>
+          <p className="max-w-2xl text-sm leading-7 text-stone-400">
+            OCX defines a profile format and evaluation spec, not a single required deployment.
+            Teams can integrate against a shared registry, a self-hosted OCX stack, or multiple registries across chains.
+          </p>
           <div className="flex flex-wrap gap-3 text-sm text-stone-200">
             <a
               href="mailto:keldrickddev@gmail.com"
@@ -71,6 +75,20 @@ export default function IntegrationsPage() {
                 </div>
               </div>
             </div>
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-stone-800 bg-stone-950/70 p-4 text-sm text-stone-300">
+                <p className="font-medium text-stone-100">Shared registry</p>
+                <p className="mt-2">Read from a public OCX deployment if that fits your trust model.</p>
+              </div>
+              <div className="rounded-2xl border border-stone-800 bg-stone-950/70 p-4 text-sm text-stone-300">
+                <p className="font-medium text-stone-100">Self-hosted</p>
+                <p className="mt-2">Run your own registry and signer stack while keeping the OCX profile format.</p>
+              </div>
+              <div className="rounded-2xl border border-stone-800 bg-stone-950/70 p-4 text-sm text-stone-300">
+                <p className="font-medium text-stone-100">Multi-registry</p>
+                <p className="mt-2">Aggregate profiles across chains or instances when your product needs it.</p>
+              </div>
+            </div>
           </div>
 
           <div className="rounded-[2rem] border border-stone-800 bg-gradient-to-b from-stone-900 to-stone-950 p-8">
@@ -95,6 +113,17 @@ export default function IntegrationsPage() {
                 <li>Risk engine customization</li>
                 <li>Onchain credit gating</li>
               </ul>
+            </div>
+            <div className="mt-6 rounded-3xl border border-amber-900/50 bg-amber-950/20 p-5 text-sm text-stone-300">
+              <p className="font-medium text-stone-100">Reference policy</p>
+              <ul className="mt-3 space-y-2">
+                <li>`PASS`: score at or above your threshold, acceptable tier, high confidence, fresh profile</li>
+                <li>`REVIEW`: medium score band or stale profile that still merits manual review</li>
+                <li>`BLOCK`: low score, low confidence, or policy violation</li>
+              </ul>
+              <p className="mt-3 text-stone-400">
+                OCX standardizes the payload. Your protocol decides freshness windows, accepted models, and thresholds.
+              </p>
             </div>
           </div>
         </div>

@@ -32,6 +32,37 @@ FOUNDRY_PROFILE=ci forge test --fuzz-seed 42
 - **[SPEC.md](SPEC.md)** — Canonical spec: subjectKey, attestations, payload formats, hashing, nonces.
 - **[packages/ocx-sdk](packages/ocx-sdk)** — TypeScript SDK: types, `hashReasons` / `hashEvidence`, `buildRiskPayloadV2ByKey`, EIP-712 helpers; first integration example.
 
+## Deployment Model
+
+OCX is a spec and profile format, not a single canonical registry deployment.
+
+- Protocols can read from a shared public OCX registry
+- Protocols can deploy their own OCX-compatible registry and signer stack
+- Integrators can support multiple registries across chains
+
+Treat registry address, chain, and signer as configuration in every integration.
+
+## Hosted Evaluation (Optional)
+
+OCX includes a reference hosted evaluator inside `backend/oracle-signer` that can:
+
+- compute deterministic credit profiles
+- sign evaluation payloads
+- return commit-ready payloads for `updateCreditProfileV2` and `updateCreditProfileV2ByKey`
+
+This is an optional acceleration path for teams that want to integrate quickly before running their own signer infrastructure.
+See `docs/integrations.md` for the hosted routes and reference policy guidance.
+
+## Integration Policy
+
+OCX returns profiles, but integrators own decision policy.
+
+- OCX standardizes payload structure, hashing, and commit semantics
+- Integrators choose freshness windows, accepted models, signer domains, and thresholds
+- A score should be interpreted within the deployment and model that produced it
+
+Use `docs/integrations.md` as the reference policy starting point for `PASS` / `REVIEW` / `BLOCK` flows.
+
 ## Overview
 
 OCX is an infrastructure layer for EVM-based stablecoin lending: smart contracts hold custody and enforce loan terms; offchain oracles supply signed risk and price payloads; a loan engine gates origination by score bands; a liquidation manager keeps positions solvent; and operator tooling (monitoring, stress testing) surfaces anomalies and parameter recommendations. No governance, no tokens—just the plumbing.
