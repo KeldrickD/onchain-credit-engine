@@ -9,6 +9,8 @@ broadcast/
 
 # Node
 node_modules/
+backend/*/dist/
+packages/*/dist/
 
 # Next.js
 frontend/.next/
