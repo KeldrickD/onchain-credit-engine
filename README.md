@@ -63,6 +63,16 @@ OCX returns profiles, but integrators own decision policy.
 
 Use `docs/integrations.md` as the reference policy starting point for `PASS` / `REVIEW` / `BLOCK` flows.
 
+## Integration Personas
+
+OCX integrations typically involve three roles inside a protocol team:
+
+- protocol engineers integrating registry reads
+- risk teams defining policy thresholds
+- protocol leads evaluating adoption scope
+
+See `docs/personas.md`.
+
 ## Overview
 
 OCX is an infrastructure layer for EVM-based stablecoin lending: smart contracts hold custody and enforce loan terms; offchain oracles supply signed risk and price payloads; a loan engine gates origination by score bands; a liquidation manager keeps positions solvent; and operator tooling (monitoring, stress testing) surfaces anomalies and parameter recommendations. No governance, no tokens—just the plumbing.
